@@ -1,0 +1,10 @@
+*
+!backend/
+!backend/*.py
+!requirements.txt
+!smoke_model_bundle/
+!smoke_model_bundle/metadata.json
+!smoke_model_bundle/lightgbm_smoke_model.joblib
+!dist/
+!dist/*
+!nginx.conf

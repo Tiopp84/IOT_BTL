@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#0a1020">
+  <title>Fire Monitor · Giám sát cảnh báo cháy</title>
+  <link rel="stylesheet" href="/style.css">
+  <script src="/app.js" defer></script>
+</head>
+<body>
+  <header class="top">
+    <div class="wrap top-inner">
+      <div class="brand">
+        <span class="brand-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><path d="M12 3c1 5-4 6-4 10a4 4 0 0 0 8 0c0-2-1-3-2-4 4 2 6 5 5 8a7 7 0 0 1-14-1c0-5 5-8 7-13Z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/></svg></span>
+        <div><div class="brand-name">Fire Monitor <span class="chip cyan">LIGHTGBM</span></div><p>Hệ thống IoT cảnh báo cháy 3 mức</p></div>
+      </div>
+      <span class="connection chip" id="connection" data-tone="muted" role="status"><i></i><span id="connection-text">Đang kết nối web</span></span>
+    </div>
+  </header>
+  <main class="wrap">
+    <div class="intro">
+      <div><div class="eyebrow">01 / GIÁM SÁT TRỰC TIẾP</div><h1>Tổng quan thiết bị</h1></div>
+      <div class="source-controls">
+        <label class="device">Nguồn dữ liệu
+          <select id="source">
+            <option value="mqtt">ESP32 qua MQTT</option>
+            <option value="smoke">Giả lập 1 Hz · Khói đột ngột</option>
+            <option value="heat">Giả lập 1 Hz · Nhiệt tăng nhanh</option>
+          </select>
+        </label>
+        <label class="device">Thiết bị <select id="device" disabled><option value="">Chờ thiết bị</option></select></label>
+        <button id="restart-simulation" type="button" hidden>Chạy lại</button>
+      </div>
+    </div>
+    <p class="simulation-phase" id="simulation-phase" hidden></p>
+
+    <section class="sensors" aria-label="Số đo cảm biến">
+      <article class="card sensor" style="--accent:#ffbf69"><div class="label">NHIỆT ĐỘ <span>SHT31</span></div><div><strong id="temperature_c">—</strong> <small>°C</small></div><div class="subtle" id="d-temp">Δ 5 mẫu · —</div></article>
+      <article class="card sensor" style="--accent:#5dd8ef"><div class="label">ĐỘ ẨM <span>SHT31</span></div><div><strong id="humidity_pct">—</strong> <small>%RH</small></div><div class="subtle" id="d-hum">Δ 5 mẫu · —</div></article>
+      <article class="card sensor" style="--accent:#8aa1ff"><div class="label">PM1.0 <span>PMS5003</span></div><div><strong id="pm1_ug_m3">—</strong> <small>µg/m³</small></div><div class="subtle" id="mean-pm1">TB trượt · —</div></article>
+      <article class="card sensor" style="--accent:#bf9cff"><div class="label">PM2.5 <span>PMS5003</span></div><div><strong id="pm25_ug_m3">—</strong> <small>µg/m³</small></div><div class="subtle" id="mean-pm25">TB trượt · —</div></article>
+      <article class="card sensor" style="--accent:#ff8fa6"><div class="label">FLAME IR <span>TÍN HIỆU SỐ</span></div><div><strong class="ir" id="ir">—</strong></div><div class="subtle" id="ir-duration">Thời gian kích hoạt · —</div></article>
+    </section>
+
+    <div class="workspace">
+      <div class="plots">
+        <section class="card plot">
+          <div class="panel-head"><div><h2>Nhiệt độ và độ ẩm</h2><p class="subtle">30 giây gần nhất có dữ liệu</p></div><div class="legend"><span style="--accent:#ffbf69">°C</span><span style="--accent:#5dd8ef">%RH</span></div></div>
+          <div class="chart"><svg id="climate-chart" viewBox="0 0 560 160" role="img" aria-label="Đồ thị nhiệt độ và độ ẩm"></svg><p id="climate-empty">Đang chờ số đo SHT31.</p></div>
+        </section>
+        <section class="card plot">
+          <div class="panel-head"><div><h2>Nồng độ bụi mịn</h2><p class="subtle">30 giây gần nhất có dữ liệu · µg/m³</p></div><div class="legend"><span style="--accent:#8aa1ff">PM1.0</span><span style="--accent:#bf9cff">PM2.5</span></div></div>
+          <div class="chart"><svg id="dust-chart" viewBox="0 0 560 160" role="img" aria-label="Đồ thị nồng độ bụi mịn"></svg><p id="dust-empty">Đang chờ số đo PMS5003.</p></div>
+        </section>
+        <section class="card">
+          <div class="panel-head"><div><h2>Đặc trưng đầu vào</h2><p class="subtle">Giá trị backend đưa vào LightGBM ở mẫu hiện tại</p></div><span class="chip cyan" id="feature-count">LIGHTGBM</span></div>
+          <dl id="features" class="feature-grid"></dl>
+        </section>
+      </div>
+
+      <aside class="decisions" aria-label="Suy luận và cảnh báo">
+        <section class="card alarm" id="alarm" data-tone="muted">
+          <div class="panel-head"><h2>Mức cảnh báo</h2><span class="chip" id="latch">Chốt · —</span></div>
+          <div class="alarm-main"><span class="orb" aria-hidden="true">◈</span><div><h3 id="risk" aria-live="polite">Chờ dữ liệu</h3><p id="reason">Đang chờ bản tin MQTT từ thiết bị.</p></div></div>
+          <div class="alarm-foot"><span class="chip" id="health">Chưa có dữ liệu</span><span id="updated">Mẫu cuối · —</span></div>
+        </section>
+        <section class="card score">
+          <div class="panel-head"><div><h2>Suy luận LightGBM</h2><p class="subtle">Điểm mô hình và cửa sổ bỏ phiếu</p></div><span class="chip cyan">p_fire</span></div>
+          <div class="score-number"><strong id="score">—</strong><span> / 1</span></div>
+          <div class="meter" aria-hidden="true"><div id="meter-fill"></div><i id="high-marker" hidden></i></div>
+          <div class="score-foot"><span id="low-threshold">Mức chú ý · —</span><span id="threshold">Ngưỡng cao · —</span></div>
+          <div class="voting-head"><strong>Cửa sổ bỏ phiếu</strong><span class="chip" id="votes">— phiếu</span></div>
+          <ol id="vote-window" class="vote-window"></ol>
+          <p id="vote-rule" class="subtle">Đang chờ cấu hình từ backend.</p>
+        </section>
+        <section class="card activity">
+          <div class="panel-head"><div><h2>Nhật ký trạng thái</h2><p class="subtle">Cảnh báo và kết nối thiết bị</p></div></div>
+          <ol id="activity"><li class="empty">Chưa có sự kiện.</li></ol>
+        </section>
+      </aside>
+    </div>
+    <footer><span>Fire Monitor · Bài tập lớn IoT</span><span>ESP32 → Mosquitto → LightGBM</span></footer>
+  </main>
+</body>
+</html>

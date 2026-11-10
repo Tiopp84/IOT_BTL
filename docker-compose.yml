@@ -1,0 +1,33 @@
+name: btl-fire-monitor
+
+services:
+  mosquitto:
+    image: eclipse-mosquitto:2
+    restart: unless-stopped
+    ports:
+      - "${MQTT_PORT:-1883}:1883"
+    volumes:
+      - ./mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
+  backend:
+    build: .
+    image: btl-fire-backend:local
+    restart: unless-stopped
+    depends_on:
+      - mosquitto
+    environment:
+      MQTT_HOST: mosquitto
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/healthz', timeout=2)"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+  dashboard:
+    build:
+      context: .
+      dockerfile: Dockerfile.dashboard
+    image: btl-fire-dashboard:local
+    restart: unless-stopped
+    depends_on:
+      - backend
+    ports:
+      - "${DASHBOARD_PORT:-8080}:80"
