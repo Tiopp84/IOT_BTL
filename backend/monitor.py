@@ -9,6 +9,7 @@ from backend.inference import LAG, SENSOR_KEYS, extract_features
 TIMEOUT_SECONDS = 5
 MAX_SAMPLE_GAP_MS = 2500
 SAFE_SAMPLES = 10
+ATTENTION_SAMPLES = 3
 IR_CONFIRM_MS = 2000
 MAX_DEVICES = 32
 HISTORY_SIZE = 120
@@ -59,6 +60,7 @@ class Device:
     last_seen: float = 0
     current: dict | None = None
     safe_streak: int = 0
+    attention_streak: int = 0
     latched: bool = False
     reason_latched: str | None = None
     last_state: tuple | None = None
@@ -67,6 +69,7 @@ class Device:
         self.samples.clear()
         self.scores.clear()
         self.safe_streak = 0
+        self.attention_streak = 0
 
     def record_state(self, health, risk_level, reason, timestamp):
         state = (health, risk_level)
@@ -121,6 +124,7 @@ class Monitor:
             features = extract_features(device.samples)
             score = self.predictor.score(features)
             device.scores.append(score)
+            device.attention_streak = device.attention_streak + 1 if score >= self.low_threshold else 0
             device.safe_streak = device.safe_streak + 1 if score < self.low_threshold and not data["ir_active"] else 0
             votes = sum(point >= self.threshold for point in device.scores)
             full_window = len(device.scores) == self.window
@@ -129,13 +133,18 @@ class Monitor:
                 risk_level, reason = "FIRE_ALERT", "LightGBM đủ phiếu cảnh báo"
             elif ir_confirmed and score >= self.low_threshold:
                 risk_level, reason = "FIRE_ALERT", "Flame IR xác nhận và điểm LightGBM tăng"
-            elif score >= self.low_threshold or ir_confirmed:
-                risk_level, reason = "ATTENTION", "Flame IR xác nhận" if ir_confirmed else "Điểm LightGBM tăng"
+            elif ir_confirmed:
+                risk_level, reason = "ATTENTION", "Flame IR xác nhận"
+            elif device.attention_streak >= ATTENTION_SAMPLES:
+                risk_level, reason = "ATTENTION", "Điểm LightGBM đạt ngưỡng chú ý trong 3 mẫu liên tiếp"
             elif device.safe_streak >= SAFE_SAMPLES:
                 risk_level, reason = "SAFE", "Đủ 10 mẫu điểm thấp và IR không hoạt động"
+            elif device.attention_streak:
+                reason = f"Đang xác nhận mức chú ý ({device.attention_streak}/{ATTENTION_SAMPLES} mẫu)"
             else:
                 reason = "Đang tích lũy mẫu" if not full_window else "Đang xác nhận mức an toàn"
 
+        measured_risk_level, measured_reason = risk_level, reason
         if risk_level == "FIRE_ALERT" and not device.latched:
             device.latched, device.reason_latched = True, reason
         if device.latched:
@@ -147,13 +156,14 @@ class Monitor:
             ir_active=data["ir_active"], ir_confirmed=ir_confirmed, p_fire=score,
             ir_active_duration_ms=data["ir_active_duration_ms"], ir_raw=data.get("ir_raw"),
             health=health, risk_level=risk_level, reason=reason,
+            measured_risk_level=measured_risk_level, measured_reason=measured_reason,
             votes=votes, vote_samples=len(device.scores), latched=device.latched,
         )
         device.boot_id, device.seq, device.uptime_ms = boot_id, seq, uptime
         device.last_seen = now
         device.current = dict(current, features=features, score_window=list(device.scores))
         device.history.append(current)
-        device.record_state(health, risk_level, reason, timestamp)
+        device.record_state(health, measured_risk_level, measured_reason, timestamp)
 
     def snapshot(self):
         now = monotonic()
@@ -164,11 +174,14 @@ class Monitor:
                 current.update(
                     health="OFFLINE", p_fire=None, votes=0, vote_samples=0,
                     features=None, score_window=[],
+                    measured_risk_level=None,
                     risk_level="FIRE_ALERT" if device.latched else None,
                     reason="Chưa nhận được dữ liệu mới" if self.connected else "Mất kết nối MQTT",
                 )
-                device.record_state(current["health"], current["risk_level"], current["reason"], time())
+                current["measured_reason"] = current["reason"]
+                device.record_state("OFFLINE", None, current["measured_reason"], time())
             devices[device_id] = dict(current=current, history=list(device.history), events=list(device.events))
         return dict(mqtt_connected=self.connected, threshold=self.threshold, window=self.window,
                     required_votes=self.required_votes, feature_names=self.predictor.features,
-                    low_threshold=self.low_threshold, ir_confirm_ms=IR_CONFIRM_MS, devices=devices)
+                    low_threshold=self.low_threshold, attention_samples=ATTENTION_SAMPLES,
+                    ir_confirm_ms=IR_CONFIRM_MS, devices=devices)

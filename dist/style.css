@@ -141,3 +141,5 @@ footer { margin-top: 16px; }
   .sensor .label span { display: none; }
   .top-inner { flex-wrap: wrap; padding-block: 9px; }
 }
+.alarm #latch { color: var(--tone); }
+.alarm #latch[data-tone="red"] { border-color: #804253; background: #361e30; }

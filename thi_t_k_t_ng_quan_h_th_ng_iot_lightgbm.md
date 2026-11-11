@@ -30,17 +30,18 @@ Backend đưa một hàng 13 cột vào `predict_proba` và lấy điểm của 
 | Ngưỡng cao `T_HIGH` | 0,70 |
 | Kích thước cửa sổ điểm | 5 |
 | Số phiếu tối thiểu | 3 |
+| Số mẫu đạt ngưỡng thấp liên tiếp để xác nhận `ATTENTION` từ model | 3 |
 | Số mẫu điểm thấp liên tiếp để xác nhận `SAFE` | 10 |
 
 Áp dụng theo thứ tự ưu tiên:
 
 1. Giữ `FIRE_ALERT` nếu node đã chốt cảnh báo.
 2. Chốt `FIRE_ALERT` nếu đủ 5 điểm và ít nhất 3 điểm đạt 0,70, hoặc Flame IR đã xác nhận và điểm hiện tại đạt 0,30. Nhánh IR kết hợp điểm có thể kích hoạt trong giai đoạn `WARMUP`.
-3. Đặt `ATTENTION` nếu điểm hiện tại đạt 0,30 hoặc Flame IR đã xác nhận.
+3. Đặt `ATTENTION` nếu 3 mẫu hợp lệ liên tiếp đạt 0,30 hoặc Flame IR đã xác nhận.
 4. Đặt `SAFE` sau 10 mẫu hợp lệ liên tiếp dưới 0,30, với `ir_active` tắt trong cả chuỗi.
 5. Giữ mức rủi ro `null` trong các trường hợp đang tích lũy hoặc xác nhận mức an toàn.
 
-`health` mô tả tình trạng dữ liệu riêng với `risk_level`. `WARMUP` nghĩa là cửa sổ có dưới 5 điểm, `OK` nghĩa là đủ điểm, `SENSOR_ERROR` nghĩa là mẫu báo lỗi cảm biến và `OFFLINE` nghĩa là mất MQTT hoặc quá thời hạn nhận mẫu. Một node có thể có `health: OFFLINE` đồng thời giữ `risk_level: FIRE_ALERT` do chốt đang bật. [Luật quyết định trong backend](backend/monitor.py)
+`health` mô tả tình trạng dữ liệu riêng với `risk_level`. `WARMUP` nghĩa là cửa sổ có dưới 5 điểm, `OK` nghĩa là đủ điểm, `SENSOR_ERROR` nghĩa là mẫu báo lỗi cảm biến và `OFFLINE` nghĩa là mất MQTT hoặc quá thời hạn nhận mẫu. Một node có thể có `health: OFFLINE` đồng thời giữ `risk_level: FIRE_ALERT` do chốt đang bật. Dashboard dùng `measured_risk_level` và `measured_reason` để hiển thị đánh giá theo mẫu mới nhất, cùng chỉ báo `latched` riêng. [Luật quyết định trong backend](backend/monitor.py)
 
 ## Huấn luyện và xuất mô hình
 

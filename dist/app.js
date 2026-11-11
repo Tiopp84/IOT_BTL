@@ -54,11 +54,11 @@ function render() {
   const current = device?.current;
   const health = current && (streamOnline ? current.health : "OFFLINE");
   const latched = current?.latched;
-  const risk = health === "OFFLINE" ? (latched ? "FIRE_ALERT" : null) : current?.risk_level;
   const live = health && health !== "OFFLINE" && health !== "SENSOR_ERROR";
+  const risk = live ? current.measured_risk_level : null;
   byId("alarm").dataset.tone = tones[risk] ?? "muted";
   setText("risk", riskLabels[risk] ?? (health === "OK" ? "Đang đánh giá" : healthLabels[health] ?? "Chờ dữ liệu"));
-  const reason = !streamOnline ? "Đang kết nối lại với backend." : current?.reason ?? "Đang chờ bản tin MQTT từ thiết bị.";
+  const reason = !streamOnline ? "Đang kết nối lại với backend." : current?.measured_reason ?? "Đang chờ bản tin MQTT từ thiết bị.";
   setText("reason", reason);
   setText("health", healthLabels[health] ?? "Chưa có dữ liệu");
   setText("updated", current ? `Mẫu cuối · ${formatTime(current.timestamp)}` : "Mẫu cuối · —");
@@ -66,10 +66,13 @@ function render() {
   byId("meter-fill").style.width = live && Number.isFinite(current.p_fire) ? `${current.p_fire * 100}%` : "0%";
   setText("votes", live ? `${current.votes}/${snapshot.window} phiếu · ${current.vote_samples}/${snapshot.window} mẫu` : "— phiếu");
   setText("threshold", snapshot ? `Ngưỡng cao · ${number(snapshot.threshold, 2)}` : "Ngưỡng cao · —");
-  setText("low-threshold", snapshot ? `Mức chú ý · ${number(snapshot.low_threshold, 2)}` : "Mức chú ý · —");
+  setText("low-threshold", snapshot
+    ? `Chú ý · ≥ ${number(snapshot.low_threshold, 2)} × ${snapshot.attention_samples} mẫu liên tiếp`
+    : "Mức chú ý · —");
   byId("high-marker").hidden = !snapshot;
   if (snapshot) byId("high-marker").style.left = `${snapshot.threshold * 100}%`;
-  setText("latch", `Chốt · ${current ? (latched ? "Đang giữ" : "Tắt") : "—"}`);
+  setText("latch", `Chốt báo cháy · ${current ? (latched ? "Đang giữ" : "Tắt") : "—"}`);
+  byId("latch").dataset.tone = latched ? "red" : "muted";
   for (const [key] of [...climate, ...dust]) setText(key, number(live ? current[key] : null));
   const irRaw = live && Number.isFinite(current.ir_raw) ? String(current.ir_raw) : null;
   const irState = current?.ir_confirmed ? "Đã xác nhận" : current?.ir_active ? "Đang kích hoạt" : "Không kích hoạt";

@@ -100,7 +100,7 @@ Backend publish trạng thái model lên `fire/<device_id>/alert` bằng QoS 1, 
 ## Chính sách demo
 
 - Backend tạo 13 đặc trưng động đúng thứ tự của `model_13f/metadata.json` và nạp `lightgbm_dynamic_model.joblib` một lần khi khởi động. Đầu vào model gồm 8 chênh lệch sau 1 và 5 mẫu, 4 độ lệch chuẩn trượt 5 mẫu và tỷ lệ PM2.5/PM1.0. Ngưỡng thấp, ngưỡng cao và cửa sổ bỏ phiếu cũng lấy từ metadata. Khoảng gián đoạn lớn hơn 2,5 giây theo uptime, mất số thứ tự, đổi phiên hoặc mất kết nối sẽ bắt đầu lại cửa sổ.
-- LightGBM xác nhận cảnh báo khi ít nhất 3 trong đủ 5 điểm đạt 0,70. Flame IR kích hoạt từ 2 giây kết hợp điểm từ 0,30 cũng xác nhận cảnh báo. Một trong hai điều kiện IR hoặc điểm 0,30 tạo mức cần chú ý. Mức an toàn yêu cầu 10 mẫu liên tiếp dưới 0,30 và IR tắt.
+- LightGBM xác nhận cảnh báo khi ít nhất 3 trong đủ 5 điểm đạt 0,70. Flame IR kích hoạt từ 2 giây kết hợp điểm từ 0,30 cũng xác nhận cảnh báo. Mức cần chú ý yêu cầu 3 mẫu liên tiếp đạt 0,30 hoặc Flame IR đã xác nhận. Mức an toàn yêu cầu 10 mẫu liên tiếp dưới 0,30 và IR tắt.
 - Dashboard giữ tối đa 120 mẫu và 30 sự kiện cho mỗi thiết bị trong RAM. Chốt cảnh báo demo được giữ qua lỗi cảm biến, mất dữ liệu và ESP32 khởi động lại. Khởi động lại backend xóa phiên giám sát và chốt trong RAM. Cảnh báo được hiển thị trên API và dashboard.
 - `GET /api/status` trả trạng thái JSON. `GET /api/events` phát trạng thái thay đổi qua SSE.
 
