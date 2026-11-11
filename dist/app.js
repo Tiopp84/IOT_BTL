@@ -71,13 +71,15 @@ function render() {
   if (snapshot) byId("high-marker").style.left = `${snapshot.threshold * 100}%`;
   setText("latch", `Chốt · ${current ? (latched ? "Đang giữ" : "Tắt") : "—"}`);
   for (const [key] of [...climate, ...dust]) setText(key, number(live ? current[key] : null));
-  setText("ir", live ? (current.ir_confirmed ? "Đã xác nhận" : current.ir_active ? "Đang kích hoạt" : "Không kích hoạt") : "—");
-  setText("ir-duration", `Thời gian kích hoạt · ${live ? current.ir_active_duration_ms + " ms" : "—"}`);
+  const irRaw = live && Number.isFinite(current.ir_raw) ? String(current.ir_raw) : null;
+  const irState = current?.ir_confirmed ? "Đã xác nhận" : current?.ir_active ? "Đang kích hoạt" : "Không kích hoạt";
+  setText("ir", live ? irRaw ?? irState : "—");
+  setText("ir-duration", live ? `${irState} · ${current.ir_active_duration_ms} ms` : "Thời gian kích hoạt · —");
   const features = live ? current.features : null;
   setText("d-temp", `Δ 5 mẫu · ${number(features?.d_temp_5)}`);
   setText("d-hum", `Δ 5 mẫu · ${number(features?.d_hum_5)}`);
-  setText("mean-pm1", `TB trượt · ${number(features?.pm1_roll_5_mean)}`);
-  setText("mean-pm25", `TB trượt · ${number(features?.pm25_roll_5_mean)}`);
+  setText("std-pm1", `Độ lệch chuẩn (5 mẫu) · ${number(features?.pm1_roll_5_std, 2)}`);
+  setText("std-pm25", `Độ lệch chuẩn (5 mẫu) · ${number(features?.pm25_roll_5_std, 2)}`);
   renderFeatures(features);
   renderVotes(live ? current.score_window : []);
   drawChart("climate", device?.history ?? [], climate, true);
@@ -164,16 +166,18 @@ function svgNode(tag, attributes, text) {
 function drawChart(id, history, series, dualAxis) {
   const chart = byId(`${id}-chart`);
   chart.replaceChildren();
-  const end = history.at(-1)?.timestamp;
-  const samples = history.filter((sample) => sample.timestamp >= end - 30);
+  const latest = history.at(-1);
+  const samples = latest ? history.filter((sample) => sample.boot_id === latest.boot_id
+    && Number.isFinite(sample.uptime_ms) && latest.uptime_ms - sample.uptime_ms <= 30000) : [];
   const values = series.map(([key]) => samples.map((sample) => sample[key]).filter(Number.isFinite));
   const hasData = values.some((points) => points.length);
   byId(`${id}-empty`).hidden = hasData;
   if (!hasData) return;
 
   const left = 50, right = 510, top = 14, bottom = 130;
+  const end = latest.timestamp;
   const start = end - 30;
-  const x = (time) => left + (time - start) / 30 * (right - left);
+  const x = (sample) => left + (30000 - (latest.uptime_ms - sample.uptime_ms)) / 30000 * (right - left);
   const range = (points) => {
     if (!points.length) return [0, 1];
     const low = Math.floor(Math.min(...points));
@@ -191,7 +195,7 @@ function drawChart(id, history, series, dualAxis) {
     });
   }
   for (const stamp of [start, start + 15, end]) {
-    chart.append(svgNode("text", { x: x(stamp), y: 150, "text-anchor": "middle" }, formatTime(stamp)));
+    chart.append(svgNode("text", { x: left + (stamp - start) / 30 * (right - left), y: 150, "text-anchor": "middle" }, formatTime(stamp)));
   }
   series.forEach(([key, color], index) => {
     let path = "", previous = null;
@@ -202,8 +206,8 @@ function drawChart(id, history, series, dualAxis) {
         continue;
       }
       const continuous = previous && sample.boot_id === previous.boot_id
-        && sample.seq === previous.seq + 1 && sample.timestamp - previous.timestamp <= 2.5;
-      const cx = x(sample.timestamp), cy = y(sample[key], ranges[dualAxis ? index : 0]);
+        && sample.seq === previous.seq + 1 && sample.uptime_ms - previous.uptime_ms <= 2500;
+      const cx = x(sample), cy = y(sample[key], ranges[dualAxis ? index : 0]);
       path += `${continuous ? "L" : "M"} ${cx} ${cy} `;
       const point = svgNode("circle", { cx, cy, r: 2.3, fill: color });
       point.append(svgNode("title", {}, `${formatTime(sample.timestamp)} · ${number(sample[key], 2)}`));

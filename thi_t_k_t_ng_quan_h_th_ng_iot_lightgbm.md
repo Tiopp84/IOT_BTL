@@ -1,220 +1,51 @@
-# THIẾT KẾ TỔNG QUAN HỆ THỐNG IOT CẢNH BÁO CHÁY 3 MỨC
+# Thiết kế suy luận LightGBM với 13 đặc trưng động
 
-### (Hợp nhất dữ liệu đa cảm biến với LightGBM & MQTT Mosquitto)
+Cập nhật ngày 11/11/2026. Backend nạp `model_13f/lightgbm_dynamic_model.joblib` khi khởi động. Tên cột, thứ tự đầu vào và cấu hình bỏ phiếu lấy từ metadata cùng thư mục. Cấu hình này dùng bốn số đo môi trường có sẵn trong payload ESP32. [Metadata](model_13f/metadata.json) · [Mã suy luận](backend/inference.py)
 
-**Phiên bản:** 2.0  
-**Ngày cập nhật:** 10/11/2026  
-**Kiến trúc chính:** ESP32 + SHT31 + PMS5003 + Flame IR $\rightarrow$ Mosquitto MQTT Broker $\rightarrow$ Python Backend (LightGBM + Decision Engine) $\rightarrow$ ESP32 Actuators  
+## Tạo đặc trưng trực tuyến
 
----
+Gọi `x[t]` là số đo tại mẫu hiện tại. Một node có bộ đệm tối đa 6 mẫu để tính `x[t] - x[t-5]`. Độ lệch chuẩn dùng tối đa 5 mẫu gần nhất, gồm mẫu hiện tại, với mẫu số `n - 1` như `pandas.rolling(...).std()` trong notebook. Chênh lệch thiếu mẫu tham chiếu và độ lệch chuẩn chỉ có một mẫu được điền 0. Giá trị PM1.0 và PM2.5 tức thời đi vào tỷ lệ sau khi cộng `0.001` cho cả tử và mẫu.
 
-## 1. PHẠM VI VÀ QUYẾT ĐỊNH THIẾT KẾ
+| Vị trí | Tên đặc trưng theo metadata | Công thức |
+|---:|---|---|
+| 1–2 | `d_temp_1`, `d_temp_5` | Chênh lệch nhiệt độ sau 1 và 5 mẫu |
+| 3–4 | `d_hum_1`, `d_hum_5` | Chênh lệch độ ẩm sau 1 và 5 mẫu |
+| 5–6 | `d_pm1_1`, `d_pm1_5` | Chênh lệch PM1.0 sau 1 và 5 mẫu |
+| 7–8 | `d_pm25_1`, `d_pm25_5` | Chênh lệch PM2.5 sau 1 và 5 mẫu |
+| 9 | `temp_roll_5_std` | Độ lệch chuẩn trượt của nhiệt độ |
+| 10 | `hum_roll_5_std` | Độ lệch chuẩn trượt của độ ẩm |
+| 11 | `pm1_roll_5_std` | Độ lệch chuẩn trượt của PM1.0 |
+| 12 | `pm25_roll_5_std` | Độ lệch chuẩn trượt của PM2.5 |
+| 13 | `pm_ratio` | `(PM2.5 + 0.001) / (PM1.0 + 0.001)` |
 
-1. **Phần cứng thu thập dữ liệu (End-Node):**
-   * **ESP32 DevKit WROOM-32** đọc dữ liệu từ **4 giá trị cảm biến môi trường thô**: Nhiệt độ ($T$) và Độ ẩm ($H$) từ SHT31, Bụi mịn PM1.0 và PM2.5 từ PMS5003.
-   * **Cảm biến Hồng ngoại Flame IR** phát hiện ngọn lửa trực tiếp (tín hiệu số DO), không đưa vào mô hình LightGBM mà tham gia hợp nhất ở Tầng Quyết định (Decision Engine).
+ESP32 gửi ở nhịp danh định 1 Hz, nên chênh lệch 5 mẫu tương ứng khoảng 5 giây khi luồng đều. Backend bắt đầu lại cửa sổ khi đổi phiên, thiếu số thứ tự, khoảng cách uptime trên 2,5 giây, gián đoạn nhận từ 5 giây, mất kết nối broker hoặc có mẫu báo lỗi cảm biến. Bộ đệm đặc trưng và bộ đệm bỏ phiếu có kích thước riêng. [Bộ đệm và điều kiện gián đoạn](backend/monitor.py)
 
-2. **Mô hình Trí tuệ Nhân tạo (Machine Learning):**
-   * Sử dụng thuật toán **LightGBM** (hoặc `HistGradientBoostingClassifier`) huấn luyện trên 16 đặc trưng chuỗi thời gian (bao gồm 4 đặc trưng thô, 4 tốc độ biến thiên $\Delta_5$, 6 thống kê trượt Rolling Mean/Std, và 2 tỷ lệ biến).
-   * File mô hình được đóng gói thành `lightgbm_smoke_model.joblib` và `metadata.json` chạy trực tiếp trên Python Backend Server.
+## Điểm mô hình và luật cảnh báo
 
-3. **Truyền thông & Giao thức:**
-   * Gửi dữ liệu định kỳ $1\text{ Hz}$ qua **MQTT Broker (Mosquitto)** cài đặt trên Laptop/Server cục bộ.
+Backend đưa một hàng 13 cột vào `predict_proba` và lấy điểm của lớp `Fire Alarm = 1`. `p_fire` là điểm lớp dương của LightGBM. Tầng luật sử dụng điểm đó, số phiếu và cờ Flame IR để tạo `risk_level`. Giá trị IR được xác nhận khi `ir_active` đúng và `ir_active_duration_ms` từ 2000 ms trở lên. ADC tùy chọn `ir_raw` được hiển thị trên dashboard.
 
-4. **Phân cấp Cảnh báo (3 Mức):**
-   * `SAFE` (An toàn): LED Xanh sáng, còi tắt.
-   * `ATTENTION` (Cần chú ý): LED Vàng sáng, còi tắt.
-   * `FIRE_ALERT` (Cảnh báo cháy): LED Đỏ sáng, còi báo động theo nhịp. Kích hoạt cơ chế Chốt cảnh báo (Alarm Latching).
+| Tham số | Giá trị chạy |
+|---|---:|
+| Ngưỡng thấp `T_LOW` | 0,30 |
+| Ngưỡng cao `T_HIGH` | 0,70 |
+| Kích thước cửa sổ điểm | 5 |
+| Số phiếu tối thiểu | 3 |
+| Số mẫu điểm thấp liên tiếp để xác nhận `SAFE` | 10 |
 
----
+Áp dụng theo thứ tự ưu tiên:
 
-## 2. KIẾN TRÚC TỔNG THỂ HỆ THỐNG
+1. Giữ `FIRE_ALERT` nếu node đã chốt cảnh báo.
+2. Chốt `FIRE_ALERT` nếu đủ 5 điểm và ít nhất 3 điểm đạt 0,70, hoặc Flame IR đã xác nhận và điểm hiện tại đạt 0,30. Nhánh IR kết hợp điểm có thể kích hoạt trong giai đoạn `WARMUP`.
+3. Đặt `ATTENTION` nếu điểm hiện tại đạt 0,30 hoặc Flame IR đã xác nhận.
+4. Đặt `SAFE` sau 10 mẫu hợp lệ liên tiếp dưới 0,30, với `ir_active` tắt trong cả chuỗi.
+5. Giữ mức rủi ro `null` trong các trường hợp đang tích lũy hoặc xác nhận mức an toàn.
 
-```
-+-----------------------------------------------------------------------------------+
-|                           ESP32 End-Node (Thu thập & Điều khiển)                 |
-|  +--------------------+    +--------------------+    +-------------------------+  |
-|  | SHT31 (I2C)        |    | PMS5003 (UART)     |    | Flame IR (GPIO DO)      |  |
-|  | Nhiệt độ & Độ ẩm   |    | PM1.0 & PM2.5      |    | Tín hiệu ngọn lửa       |  |
-|  +---------+----------+    +---------+----------+    +------------+------------+  |
-+------------|-------------------------|----------------------------|---------------+
-             | (1Hz Telemetry)         |                            |
-             +-------------------------+                            |
-                                       |                            |
-                                       v                            v
-                      +--------------------------------------------------+
-                      |         MQTT Broker (Mosquitto Port: 1883)       |
-                      +------------------------+-------------------------+
-                                               |
-                                               v
-+-----------------------------------------------------------------------------------+
-|                        Python Backend Service (Laptop / Server)                   |
-|  +-----------------------------------------------------------------------------+  |
-|  | 1. Circular Buffer (W = 5 mẫu)                                              |  |
-|  +-------------------------------------+---------------------------------------+  |
-|                                        |                                          |
-|                                        v                                          |
-|  +-----------------------------------------------------------------------------+  |
-|  | 2. Online Feature Extractor (16 đặc trưng chuỗi thời gian)                  |  |
-|  +-------------------------------------+---------------------------------------+  |
-|                                        |                                          |
-|                                        v                                          |
-|  +-----------------------------------------------------------------------------+  |
-|  | 3. LightGBM Model Inference (Tính p_fire trong khoảng [0, 1])               |  |
-|  +-------------------------------------+---------------------------------------+  |
-|                                        |                                          |
-|                                        v                                          |
-|  +-----------------------------------------------------------------------------+  |
-|  | 4. Sliding Window Voting (Xác nhận >= 3/5 mẫu p_fire >= T_HIGH)              |  |
-|  +-------------------------------------+---------------------------------------+  |
-|                                        |                                          |
-|                                        v                                          |
-|  +-----------------------------------------------------------------------------+  |
-|  | 5. Decision Engine (+ Tín hiệu Flame IR -> SAFE / ATTENTION / FIRE_ALERT)   |  |
-|  +-------------------------------------+---------------------------------------+  |
-+----------------------------------------|------------------------------------------+
-                                         | (MQTT Publish Decision)
-                                         v
-+-----------------------------------------------------------------------------------+
-|                         ESP32 Actuators & Alarm Control                           |
-|  - LED Green (SAFE)  |  LED Yellow (ATTENTION)  |  LED Red & Buzzer (FIRE_ALERT)  |
-+-----------------------------------------------------------------------------------+
-```
+`health` mô tả tình trạng dữ liệu riêng với `risk_level`. `WARMUP` nghĩa là cửa sổ có dưới 5 điểm, `OK` nghĩa là đủ điểm, `SENSOR_ERROR` nghĩa là mẫu báo lỗi cảm biến và `OFFLINE` nghĩa là mất MQTT hoặc quá thời hạn nhận mẫu. Một node có thể có `health: OFFLINE` đồng thời giữ `risk_level: FIRE_ALERT` do chốt đang bật. [Luật quyết định trong backend](backend/monitor.py)
 
----
+## Huấn luyện và xuất mô hình
 
-## 3. THIẾT KẾ PHẦN CỨNG VÀ KẾT NỐI
+Notebook `iot-btl.ipynb` dùng Smoke Detection IoT Dataset, đọc 62.630 dòng theo output đã lưu. Notebook sắp xếp theo `UTC`, `CNT` và tách phiên khi khoảng nhảy UTC lớn hơn 10 giây. Trong mỗi phiên, notebook chia theo thời gian thành 60% train, 20% validation và 20% test. Đặc trưng được tính riêng theo phiên bên trong từng tập. Số mẫu train, validation và test lần lượt là 37.576, 12.522 và 12.532. Nhãn là cột `Fire Alarm`.
 
-### 3.1. Bảng sơ đồ nối dây ESP32 DevKit WROOM-32
+LightGBM dùng 150 cây, độ sâu tối đa 6, tối đa 31 lá mỗi cây, tốc độ học 0,05 và `random_state=42`. Notebook fit trên train, dùng `predict` để tính F1, precision và recall trên test, dùng `predict_proba` để tính ROC AUC. Ngưỡng vận hành 0,30 và 0,70 được ghi cố định khi xuất metadata. Phép đánh giá bỏ phiếu minh họa trong notebook dùng nhãn dự đoán tức thời với cửa sổ cho phép chưa đủ 5 mẫu. Backend dùng ngưỡng 0,70 trên điểm lớp dương và yêu cầu đủ cửa sổ. [Notebook huấn luyện](iot-btl.ipynb) · [Kết quả và giới hạn đánh giá](Lich_su_phat_trien_va_huan_luyen.md)
 
-| Thiết bị | Chân thiết bị | Chân kết nối ESP32 | Ghi chú kỹ thuật |
-| :--- | :--- | :--- | :--- |
-| **SHT31** | VCC, GND | 3V3, GND | Nguồn 3.3V |
-| | SDA, SCL | GPIO21, GPIO22 | Giao tiếp I2C chuẩn |
-| **PMS5003** | VCC, GND | **5V (VIN)**, GND | **Quạt PMS5003 bắt buộc cấp 5V** |
-| | TXD, RXD | GPIO16 (RX1), Để trống | Logic UART 3.3V |
-| **Flame IR** | VCC, GND | 3V3, GND | Nguồn 3.3V |
-| | DO | GPIO27 | Digital Input (Active-Low / Active-High) |
-| **LEDs** | Green, Yellow, Red | GPIO18, GPIO19, GPIO23 | Nối qua điện trở $330\,\Omega$ xuống GND |
-| **Buzzer** | VCC, GND, IN | 3V3, GND, GPIO25 | Module còi chủ động (Active Buzzer) |
-| **Nút Mute** | Pin 1, Pin 2 | GPIO26, GND | Chế độ `INPUT_PULLUP` |
-
----
-
-## 4. QUY TRÌNH HUẤN LUYỆN MÔ HÌNH LIGHTGBM (OFFLINE PIPELINE)
-
-### 4.1. Tập dữ liệu & Tiền xử lý chống Rò rỉ Dữ liệu (Data Leakage)
-
-1. **Nguồn dữ liệu:** `smoke_detection_iot.csv` (Kaggle).
-2. **Phân tách phiên đo (Session Detection):** Phân tách 5 phiên thử nghiệm môi trường bằng khoảng gián đoạn $\Delta\text{UTC} > 10\text{ giây}$.
-3. **Chiến lược chia dữ liệu (Blocked Time-Series Split):**
-   * **Train Set (60%):** Lấy đoạn đầu của từng phiên.
-   * **Validation Set (20%):** Lấy đoạn giữa để tối ưu ngưỡng $T_{\text{LOW}}, T_{\text{HIGH}}$.
-   * **Test Set (20%):** Lấy đoạn cuối để đánh giá độc lập.
-
-### 4.2. Danh sách 16 Đặc trưng Chuỗi thời gian (Feature Map)
-
-$$\mathbf{X}_t = \big[ T, H, PM_{1.0}, PM_{2.5}, PM_{\text{ratio}}, TH_{\text{ratio}}, \Delta T_5, \Delta H_5, \Delta PM1_5, \Delta PM2.5_5, \bar{T}_5, \bar{H}_5, \bar{PM1}_5, \bar{PM2.5}_5, \sigma(T)_5, \sigma(H)_5 \big]$$
-
-Trong đó:
-* $\Delta X_5 = X_t - X_{t-5}$: Tốc độ biến thiên trong 5 mẫu ($\sim 5\text{ giây}$).
-* $\bar{X}_5$: Trung bình trượt (Rolling Mean) 5 mẫu.
-* $\sigma(X)_5$: Độ lệch chuẩn trượt (Rolling Standard Deviation) 5 mẫu.
-* $PM_{\text{ratio}} = \frac{PM2.5 + 1e-3}{PM1.0 + 1e-3}$.
-
-### 4.3. Kết quả Kiểm thử & So sánh Hiệu năng
-
-| Chỉ số Đánh giá | Random Forest v1 (Baseline - 4 biến thô) | **LightGBM Tối ưu (Đề xuất - 16 biến)** |
-| :--- | :---: | :---: |
-| **F1-Score** | 0.7621 | **0.9426** |
-| **Precision** | 0.6980 | **0.8977** |
-| **Recall (Phát hiện cháy)** | 0.8391 | **0.9922** (Bỏ sót cháy $< 0.8\%$) |
-| **ROC AUC** | 0.7292 | **0.9981** |
-| **Dung lượng Model** | $> 15\text{ MB}$ | **$< 150\text{ KB}$** |
-| **Thời gian Suy luận** | $\sim 12\text{ ms}$ | **$< 0.5\text{ ms}$** |
-
----
-
-## 5. GIAO THỨC MQTT & CẤU TRÚC DỮ LIỆU
-
-### 5.1. Danh sách Topics MQTT
-
-* `fire/node01/telemetry` (ESP32 $\rightarrow$ Backend, QoS 1): Gửi dữ liệu cảm biến thô.
-* `fire/node01/decision` (Backend $\rightarrow$ ESP32, QoS 1): Gửi kết quả quyết định hiển thị.
-* `fire/node01/command` (Backend $\rightarrow$ ESP32, QoS 1): Gửi lệnh điều khiển (Reset / Mute).
-* `fire/node01/ack` (ESP32 $\rightarrow$ Backend, QoS 1): Xác nhận xử lý lệnh thành công.
-
-### 5.2. Format JSON Chuẩn
-
-#### Telemetry Payload (Gửi mỗi 1 giây):
-```json
-{
-  "schema_version": 1,
-  "device_id": "node01",
-  "boot_id": "b8a1-9f3c",
-  "seq": 1042,
-  "uptime_ms": 1042000,
-  "temperature_c": 29.5,
-  "humidity_pct": 58.4,
-  "pm1_ug_m3": 15.2,
-  "pm25_ug_m3": 22.0,
-  "ir_active": false,
-  "ir_active_duration_ms": 0,
-  "sensor_status": "OK"
-}
-```
-
-#### Decision Payload (Trả về phản hồi):
-```json
-{
-  "schema_version": 1,
-  "device_id": "node01",
-  "boot_id": "b8a1-9f3c",
-  "source_seq": 1042,
-  "p_fire": 0.8925,
-  "risk_level": "FIRE_ALERT",
-  "alarm_latched": true,
-  "health": "OK",
-  "valid_for_ms": 5000
-}
-```
-
----
-
-## 6. TẦNG QUYẾT ĐỊNH (DECISION ENGINE) VÀ CƠ CHẾ THỜI GIAN REAL-TIME
-
-### 6.1. Quy tắc Xác nhận Cửa sổ Thời gian (Sliding Window Voting)
-1. **Hàng đợi đệm (Circular Buffer):** Giữ $W = 5$ mẫu gần nhất nhận từ MQTT.
-2. **Xác nhận Điểm cao (`high_confirmed`):**
-   $$\text{high\_confirmed} = \left( \sum_{i=0}^{4} \mathbb{I}(p\_fire_{t-i} \ge T_{\text{HIGH}}) \right) \ge 3 \quad \text{với } T_{\text{HIGH}} = 0.70$$
-3. **Xác nhận Flame IR (`ir_confirmed`):** Tín hiệu IR duy trì trạng thái Active liên tục $\ge 2000\text{ ms}$.
-
-### 6.2. Ma trận Luật Hợp nhất 3 Ngưỡng (Data Fusion Matrix)
-
-```text
-Luật 1: IF alarm_latched == True                           ---> FIRE_ALERT (Giữ nguyên Latch)
-Luật 2: IF high_confirmed OR (ir_confirmed AND p_fire >= 0.30) ---> FIRE_ALERT (Set Latch = True)
-Luật 3: IF p_fire >= 0.30 OR ir_confirmed                  ---> ATTENTION
-Luật 4: IF p_fire < 0.30 (10 mẫu liên tiếp) AND IR == False ---> SAFE
-```
-
-### 6.3. Trạng thái Hoạt động trên ESP32
-
-| Trạng thái Cảnh báo | LED Xanh (GPIO18) | LED Vàng (GPIO19) | LED Đỏ (GPIO23) | Còi báo (GPIO25) |
-| :--- | :---: | :---: | :---: | :---: |
-| **`SAFE`** | **BẬT** | TẮT | TẮT | TẮT |
-| **`ATTENTION`** | TẮT | **BẬT** | TẮT | TẮT |
-| **`FIRE_ALERT`** | TẮT | TẮT | **BẬT** | **Kích hoạt phát nhịp (200ms ON / 200ms OFF)** |
-| **`WARMUP` / Mất kết nối** | TẮT | **Nhấp nháy (1Hz)** | TẮT | TẮT |
-
----
-
-## 7. QUY TRÌNH THỰC NGHIỆM VÀ KIỂM THỬ (END-TO-END TESTING)
-
-1. **Khởi động MQTT Broker:** Chạy Mosquitto Broker trên Laptop local (`mosquitto -v`).
-2. **Khởi động Python Backend:** Chạy script `backend/mqtt_service.py` để nạp model và sẵn sàng subscribe telemetry.
-3. **Bật nguồn ESP32:** Đèn LED Vàng nhấp nháy trong 5 giây khởi tạo (`WARMUP`). Khi nhận được gói `decision` đầu tiên có `risk_level: SAFE`, LED Xanh chuyển sang sáng ổn định.
-4. **Thử nghiệm kịch bản báo động:**
-   * **Thử nghiệm Khói/Nhiệt:** Dùng nguồn tạo khói/nhiệt đưa gần SHT31/PMS5003. Quan sát $p\_fire$ tăng dần. Khi 3/5 mẫu đạt $p\_fire \ge 0.70$, hệ thống chuyển sang `FIRE_ALERT`, LED Đỏ sáng và còi hú.
-   * **Thử nghiệm Nút Mute:** Nhấn nút trên GPIO26 $\rightarrow$ Còi tắt nhưng LED Đỏ vẫn sáng giữ Latch.
-   * **Thử nghiệm Mất mạng (Fault Tolerance):** Ngắt Wi-Fi $\rightarrow$ Sau 5 giây Timeout, ESP32 chuyển sang trạng thái cảnh báo mất kết nối, giữ nguyên trạng thái Latch an toàn nếu trước đó đang có cảnh báo cháy.
+Chạy các cell theo thứ tự để xuất `models/lightgbm_dynamic_model.joblib` và `models/metadata.json`. Đặt hai file xuất cùng nhau trong `Src/model_13f` rồi chạy `docker compose up -d --build --wait` từ `Src`. Backend kiểm tra thứ tự và số lượng đặc trưng khi nạp bundle. [Dockerfile](Dockerfile) · [Kiến trúc và MQTT](Thiet_ke_he_thong_IoT_canh_bao_chay.md)

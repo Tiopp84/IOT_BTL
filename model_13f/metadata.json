@@ -1,0 +1,31 @@
+{
+    "model_name": "LightGBM_Pure_Dynamic_IoT",
+    "features": [
+        "d_temp_1",
+        "d_temp_5",
+        "d_hum_1",
+        "d_hum_5",
+        "d_pm1_1",
+        "d_pm1_5",
+        "d_pm25_1",
+        "d_pm25_5",
+        "temp_roll_5_std",
+        "hum_roll_5_std",
+        "pm1_roll_5_std",
+        "pm25_roll_5_std",
+        "pm_ratio"
+    ],
+    "n_features": 13,
+    "metrics": {
+        "test_f1": 0.7280813214739518,
+        "test_precision": 0.794362292051756,
+        "test_recall": 0.6720093823299452,
+        "test_roc_auc": 0.30294005167080257
+    },
+    "thresholds": {
+        "T_LOW": 0.3,
+        "T_HIGH": 0.7,
+        "window_size": 5,
+        "required_votes": 3
+    }
+}

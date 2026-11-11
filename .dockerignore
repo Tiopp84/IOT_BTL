@@ -2,9 +2,9 @@
 !backend/
 !backend/*.py
 !requirements.txt
-!smoke_model_bundle/
-!smoke_model_bundle/metadata.json
-!smoke_model_bundle/lightgbm_smoke_model.joblib
+!model_13f/
+!model_13f/metadata.json
+!model_13f/lightgbm_dynamic_model.joblib
 !dist/
 !dist/*
 !nginx.conf

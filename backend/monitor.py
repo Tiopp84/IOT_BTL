@@ -8,7 +8,6 @@ from backend.inference import LAG, SENSOR_KEYS, extract_features
 
 TIMEOUT_SECONDS = 5
 MAX_SAMPLE_GAP_MS = 2500
-LOW_THRESHOLD = 0.30
 SAFE_SAMPLES = 10
 IR_CONFIRM_MS = 2000
 MAX_DEVICES = 32
@@ -31,6 +30,9 @@ def validate_telemetry(device_id, data):
             raise ValueError(f"Invalid {key}")
     if type(data.get("ir_active")) is not bool:
         raise ValueError("Invalid ir_active")
+    ir_raw = data.get("ir_raw")
+    if ir_raw is not None and (type(ir_raw) is not int or not 0 <= ir_raw <= 100000):
+        raise ValueError("Invalid ir_raw")
     status = data.get("sensor_status")
     if not isinstance(status, str) or not 1 <= len(status) <= 32:
         raise ValueError("Invalid sensor_status")
@@ -79,6 +81,7 @@ class Monitor:
     def __init__(self, predictor):
         self.predictor = predictor
         policy = predictor.policy
+        self.low_threshold = policy["T_LOW"]
         self.threshold = policy["T_HIGH"]
         self.window = policy["window_size"]
         self.required_votes = policy["required_votes"]
@@ -118,15 +121,15 @@ class Monitor:
             features = extract_features(device.samples)
             score = self.predictor.score(features)
             device.scores.append(score)
-            device.safe_streak = device.safe_streak + 1 if score < LOW_THRESHOLD and not data["ir_active"] else 0
+            device.safe_streak = device.safe_streak + 1 if score < self.low_threshold and not data["ir_active"] else 0
             votes = sum(point >= self.threshold for point in device.scores)
             full_window = len(device.scores) == self.window
             health = "OK" if full_window else "WARMUP"
             if full_window and votes >= self.required_votes:
                 risk_level, reason = "FIRE_ALERT", "LightGBM đủ phiếu cảnh báo"
-            elif ir_confirmed and score >= LOW_THRESHOLD:
+            elif ir_confirmed and score >= self.low_threshold:
                 risk_level, reason = "FIRE_ALERT", "Flame IR xác nhận và điểm LightGBM tăng"
-            elif score >= LOW_THRESHOLD or ir_confirmed:
+            elif score >= self.low_threshold or ir_confirmed:
                 risk_level, reason = "ATTENTION", "Flame IR xác nhận" if ir_confirmed else "Điểm LightGBM tăng"
             elif device.safe_streak >= SAFE_SAMPLES:
                 risk_level, reason = "SAFE", "Đủ 10 mẫu điểm thấp và IR không hoạt động"
@@ -140,9 +143,9 @@ class Monitor:
         timestamp = time()
         current = dict(zip(SENSOR_KEYS, values)) if values is not None else dict.fromkeys(SENSOR_KEYS)
         current.update(
-            boot_id=boot_id, seq=seq, timestamp=timestamp,
+            boot_id=boot_id, seq=seq, uptime_ms=uptime, timestamp=timestamp,
             ir_active=data["ir_active"], ir_confirmed=ir_confirmed, p_fire=score,
-            ir_active_duration_ms=data["ir_active_duration_ms"],
+            ir_active_duration_ms=data["ir_active_duration_ms"], ir_raw=data.get("ir_raw"),
             health=health, risk_level=risk_level, reason=reason,
             votes=votes, vote_samples=len(device.scores), latched=device.latched,
         )
@@ -168,4 +171,4 @@ class Monitor:
             devices[device_id] = dict(current=current, history=list(device.history), events=list(device.events))
         return dict(mqtt_connected=self.connected, threshold=self.threshold, window=self.window,
                     required_votes=self.required_votes, feature_names=self.predictor.features,
-                    low_threshold=LOW_THRESHOLD, ir_confirm_ms=IR_CONFIRM_MS, devices=devices)
+                    low_threshold=self.low_threshold, ir_confirm_ms=IR_CONFIRM_MS, devices=devices)

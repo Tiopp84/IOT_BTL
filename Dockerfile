@@ -7,6 +7,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends libgomp1 \
 COPY requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt
 COPY backend/ ./backend/
-COPY smoke_model_bundle/ ./smoke_model_bundle/
+COPY model_13f/ ./model_13f/
 USER 10001
 CMD ["uvicorn", "backend.app:app", "--host", "0.0.0.0", "--port", "8000"]

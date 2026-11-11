@@ -38,9 +38,9 @@
     <section class="sensors" aria-label="Số đo cảm biến">
       <article class="card sensor" style="--accent:#ffbf69"><div class="label">NHIỆT ĐỘ <span>SHT31</span></div><div><strong id="temperature_c">—</strong> <small>°C</small></div><div class="subtle" id="d-temp">Δ 5 mẫu · —</div></article>
       <article class="card sensor" style="--accent:#5dd8ef"><div class="label">ĐỘ ẨM <span>SHT31</span></div><div><strong id="humidity_pct">—</strong> <small>%RH</small></div><div class="subtle" id="d-hum">Δ 5 mẫu · —</div></article>
-      <article class="card sensor" style="--accent:#8aa1ff"><div class="label">PM1.0 <span>PMS5003</span></div><div><strong id="pm1_ug_m3">—</strong> <small>µg/m³</small></div><div class="subtle" id="mean-pm1">TB trượt · —</div></article>
-      <article class="card sensor" style="--accent:#bf9cff"><div class="label">PM2.5 <span>PMS5003</span></div><div><strong id="pm25_ug_m3">—</strong> <small>µg/m³</small></div><div class="subtle" id="mean-pm25">TB trượt · —</div></article>
-      <article class="card sensor" style="--accent:#ff8fa6"><div class="label">FLAME IR <span>TÍN HIỆU SỐ</span></div><div><strong class="ir" id="ir">—</strong></div><div class="subtle" id="ir-duration">Thời gian kích hoạt · —</div></article>
+      <article class="card sensor" style="--accent:#8aa1ff"><div class="label">PM1.0 <span>PMS5003</span></div><div><strong id="pm1_ug_m3">—</strong> <small>µg/m³</small></div><div class="subtle" id="std-pm1">Độ lệch chuẩn (5 mẫu) · —</div></article>
+      <article class="card sensor" style="--accent:#bf9cff"><div class="label">PM2.5 <span>PMS5003</span></div><div><strong id="pm25_ug_m3">—</strong> <small>µg/m³</small></div><div class="subtle" id="std-pm25">Độ lệch chuẩn (5 mẫu) · —</div></article>
+      <article class="card sensor" style="--accent:#ff8fa6"><div class="label">FLAME IR <span>ADC TỨC THỜI</span></div><div><strong class="ir" id="ir">—</strong> <small>ADC</small></div><div class="subtle" id="ir-duration">Thời gian kích hoạt · —</div></article>
     </section>
 
     <div class="workspace">
@@ -54,7 +54,7 @@
           <div class="chart"><svg id="dust-chart" viewBox="0 0 560 160" role="img" aria-label="Đồ thị nồng độ bụi mịn"></svg><p id="dust-empty">Đang chờ số đo PMS5003.</p></div>
         </section>
         <section class="card">
-          <div class="panel-head"><div><h2>Đặc trưng đầu vào</h2><p class="subtle">Giá trị backend đưa vào LightGBM ở mẫu hiện tại</p></div><span class="chip cyan" id="feature-count">LIGHTGBM</span></div>
+          <div class="panel-head"><div><h2>Đặc trưng đầu vào</h2><p class="subtle">Chênh lệch sau 1 và 5 mẫu, độ lệch chuẩn trượt và tỷ lệ PM2.5/PM1.0</p></div><span class="chip cyan" id="feature-count">LIGHTGBM</span></div>
           <dl id="features" class="feature-grid"></dl>
         </section>
       </div>

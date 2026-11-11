@@ -2,6 +2,8 @@ import asyncio
 import json
 import logging
 import os
+import threading
+import time
 from contextlib import asynccontextmanager
 from itertools import count
 from math import exp, sin
@@ -17,6 +19,8 @@ from backend.monitor import Monitor, validate_telemetry
 
 log = logging.getLogger(__name__)
 TOPIC = "fire/+/telemetry"
+ALERT_TOPIC = "fire/{}/alert"
+ALERT_HEARTBEAT_SECONDS = 5.0
 
 
 @asynccontextmanager
@@ -63,9 +67,51 @@ async def lifespan(app):
     client.on_message = on_message
     client.connect_async(os.environ.get("MQTT_HOST", "mosquitto"), 1883)
     client.loop_start()
+    stop_alerts = threading.Event()
+
+    def alert_loop():
+        """Đẩy trạng thái model xuống từng thiết bị; gửi lại mỗi 5 giây làm heartbeat."""
+        last_key = {}
+        last_sent = {}
+        while not stop_alerts.wait(1.0):
+            with lock:
+                snapshot = monitor.snapshot()
+            now = time.monotonic()
+            pending = []
+            for device_id, data in snapshot["devices"].items():
+                current = data["current"]
+                key = (current["health"], current["risk_level"], current["reason"],
+                       current["latched"], current["ir_confirmed"])
+                if key == last_key.get(device_id) and now - last_sent.get(device_id, 0) < ALERT_HEARTBEAT_SECONDS:
+                    continue
+                last_key[device_id] = key
+                last_sent[device_id] = now
+                pending.append((device_id, json.dumps({
+                    "schema_version": 1,
+                    "device_id": device_id,
+                    "health": current["health"],
+                    "risk_level": current["risk_level"],
+                    "p_fire": current["p_fire"],
+                    "threshold": snapshot["threshold"],
+                    "window": snapshot["window"],
+                    "votes": current["votes"],
+                    "ir_confirmed": current["ir_confirmed"],
+                    "latched": current["latched"],
+                    "reason": current["reason"],
+                    "timestamp": current["timestamp"],
+                }, ensure_ascii=False)))
+            for device_id, body in pending:
+                info = client.publish(ALERT_TOPIC.format(device_id), body, qos=1)
+                if info.rc != mqtt.MQTT_ERR_SUCCESS:
+                    log.debug("Alert publish skipped for %s: rc=%s", device_id, info.rc)
+
+    alerts = threading.Thread(target=alert_loop, name="alerts", daemon=True)
+    alerts.start()
     try:
         yield
     finally:
+        stop_alerts.set()
+        alerts.join(timeout=3)
         client.disconnect()
         client.loop_stop()
 
