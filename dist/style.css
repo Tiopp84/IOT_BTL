@@ -92,6 +92,10 @@ footer { display: flex; justify-content: space-between; gap: 12px; flex-wrap: wr
 .brand-icon { background: linear-gradient(145deg, #bc492f, #752739); color: #fff0e5; border-color: #a75550; }
 .chip { display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--line); border-radius: 6px; padding: 3px 7px; color: var(--subtle); background: #0c1526; font: 650 10px/1.5 ui-monospace, monospace; white-space: nowrap; }
 .chip.cyan { color: var(--blue); border-color: #245064; background: #102a39; }
+.buzzer { border: 1px solid #245064; border-radius: 6px; padding: 3px 8px; color: var(--blue); background: #102a39; font: 650 10px/1.5 ui-monospace, monospace; cursor: pointer; white-space: nowrap; }
+.buzzer[data-on="false"] { color: var(--amber); border-color: #6b5124; background: #2a2111; }
+.buzzer:disabled { opacity: .45; cursor: not-allowed; }
+.buzzer:focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; }
 .connection { padding: 6px 9px; color: var(--tone); }
 .intro { margin-bottom: 15px; }
 .eyebrow { letter-spacing: .15em; }

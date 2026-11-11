@@ -61,8 +61,7 @@ class Device:
     current: dict | None = None
     safe_streak: int = 0
     attention_streak: int = 0
-    latched: bool = False
-    reason_latched: str | None = None
+    buzzer_enabled: bool = True
     last_state: tuple | None = None
 
     def reset_windows(self):
@@ -110,6 +109,8 @@ class Monitor:
             if device.boot_id is not None:
                 device.retired_boots.append(device.boot_id)
             device.reset_windows()
+        if isinstance(data.get("buzzer_enabled"), bool):
+            device.buzzer_enabled = data["buzzer_enabled"]
 
         score = features = None
         ir_confirmed = data["ir_active"] and data["ir_active_duration_ms"] >= IR_CONFIRM_MS
@@ -145,10 +146,6 @@ class Monitor:
                 reason = "Đang tích lũy mẫu" if not full_window else "Đang xác nhận mức an toàn"
 
         measured_risk_level, measured_reason = risk_level, reason
-        if risk_level == "FIRE_ALERT" and not device.latched:
-            device.latched, device.reason_latched = True, reason
-        if device.latched:
-            risk_level, reason = "FIRE_ALERT", device.reason_latched
         timestamp = time()
         current = dict(zip(SENSOR_KEYS, values)) if values is not None else dict.fromkeys(SENSOR_KEYS)
         current.update(
@@ -157,7 +154,7 @@ class Monitor:
             ir_active_duration_ms=data["ir_active_duration_ms"], ir_raw=data.get("ir_raw"),
             health=health, risk_level=risk_level, reason=reason,
             measured_risk_level=measured_risk_level, measured_reason=measured_reason,
-            votes=votes, vote_samples=len(device.scores), latched=device.latched,
+            votes=votes, vote_samples=len(device.scores), buzzer_enabled=device.buzzer_enabled,
         )
         device.boot_id, device.seq, device.uptime_ms = boot_id, seq, uptime
         device.last_seen = now
@@ -170,12 +167,13 @@ class Monitor:
         devices = {}
         for device_id, device in self.devices.items():
             current = device.current.copy()
+            current["buzzer_enabled"] = device.buzzer_enabled
             if not self.connected or now - device.last_seen >= TIMEOUT_SECONDS:
                 current.update(
                     health="OFFLINE", p_fire=None, votes=0, vote_samples=0,
                     features=None, score_window=[],
                     measured_risk_level=None,
-                    risk_level="FIRE_ALERT" if device.latched else None,
+                    risk_level=None,
                     reason="Chưa nhận được dữ liệu mới" if self.connected else "Mất kết nối MQTT",
                 )
                 current["measured_reason"] = current["reason"]

@@ -18,6 +18,7 @@ const char* mqtt_server = "dxs.local";          // nên dùng IP máy chạy Doc
 const int   mqtt_port   = 1883;
 const char* mqtt_topic  = "fire/node01/telemetry";  // ESP32 -> backend
 const char* alert_topic = "fire/node01/alert";      // backend -> ESP32
+const char* cmd_topic   = "fire/node01/cmd";        // dashboard -> ESP32
 const char* device_id   = "node01";
 
 // 3. Cảm biến lửa / còi
@@ -38,7 +39,6 @@ const unsigned long PMS_STALE_MS = 3000;
 
 // 6. Thời gian cảnh báo
 const unsigned long ALERT_STALE_MS = 15000;
-const unsigned long ALARM_SOUND_MS = 15000;
 
 // ================== ĐỐI TƯỢNG ==================
 
@@ -69,8 +69,8 @@ float pFire = NAN;
 int alertVotes = 0;
 int alertWindow = 5;
 unsigned long lastAlertMs = 0;
-unsigned long fireAlarmStart = 0;
-bool prevRemoteFire = false;
+bool buzzerEnabled = true;
+unsigned long buzzerBeepUntil = 0;
 
 // ================== TIỆN ÍCH ==================
 
@@ -83,12 +83,24 @@ void scanI2C(TwoWire &bus, const char *name) {
 }
 
 void onMqttMessage(char *topic, byte *payload, unsigned int length) {
-  if (strcmp(topic, alert_topic) != 0) return;
+  bool isAlert = strcmp(topic, alert_topic) == 0;
+  bool isCmd   = strcmp(topic, cmd_topic) == 0;
+  if (!isAlert && !isCmd) return;
 
   JsonDocument doc;   // ArduinoJson v7 (v6: DynamicJsonDocument doc(512);)
   DeserializationError err = deserializeJson(doc, payload, length);
   if (err) {
-    Serial.printf("Alert JSON loi: %s\n", err.c_str());
+    Serial.printf("JSON loi tren %s: %s\n", topic, err.c_str());
+    return;
+  }
+
+  if (isCmd) {
+    if (doc["buzzer_enabled"].is<bool>()) {
+      bool next = doc["buzzer_enabled"].as<bool>();
+      if (next && !buzzerEnabled) buzzerBeepUntil = millis() + 150;  // bíp xác nhận khi bật
+      buzzerEnabled = next;
+      Serial.printf("Lenh loa: %s\n", buzzerEnabled ? "BAT" : "TAT");
+    }
     return;
   }
 
@@ -121,6 +133,7 @@ void reconnect() {
     if (client.connect("esp32-node01")) {
       Serial.println(" OK");
       client.subscribe(alert_topic, 1);
+      client.subscribe(cmd_topic, 1);
     } else {
       Serial.printf(" that bai rc=%d, thu lai sau 5s\n", client.state());
       delay(5000);
@@ -171,7 +184,7 @@ const char *riskText(bool fresh) {
 
 void updateOled(int flame, uint32_t irDuration, float t, float h,
                 bool sensorOk, bool pmsFresh) {
-  !if (!oledOk) return;
+  if (!oledOk) return;
 
   bool fresh = lastAlertMs && (millis() - lastAlertMs < ALERT_STALE_MS);
   bool remoteFire = fresh && riskLevel == "FIRE_ALERT";
@@ -184,7 +197,8 @@ void updateOled(int flame, uint32_t irDuration, float t, float h,
   oled.setCursor(0, 0);
   oled.print("Fire Monitor");
   oled.setCursor(92, 0);
-  oled.print(client.connected() ? "MQTT" : "OFF");
+  if (!buzzerEnabled) oled.print("MUTE");
+  else oled.print(client.connected() ? "MQTT" : "OFF");
 
   oled.setTextSize(2);
   oled.setCursor(0, 10);
@@ -219,11 +233,13 @@ void updateBuzzer() {
   bool fresh = lastAlertMs && (millis() - lastAlertMs < ALERT_STALE_MS);
   bool remoteFire = fresh && riskLevel == "FIRE_ALERT";
 
-  if (remoteFire && !prevRemoteFire) fireAlarmStart = millis();
-  prevRemoteFire = remoteFire;
+  if (!buzzerEnabled) {
+    digitalWrite(BUZZER_PIN, HIGH);
+    return;
+  }
 
-  if (irActiveState || (remoteFire && millis() - fireAlarmStart < ALARM_SOUND_MS)) {
-    digitalWrite(BUZZER_PIN, LOW);   // hú liên tục
+  if (millis() < buzzerBeepUntil || irActiveState || remoteFire) {
+    digitalWrite(BUZZER_PIN, LOW);   // hú khi còn cảnh báo cháy
   } else if (fresh && riskLevel == "ATTENTION") {
     digitalWrite(BUZZER_PIN, (millis() / 500) % 2 ? HIGH : LOW);  // chíp 0,5 s
   } else {
@@ -320,14 +336,14 @@ void loop() {
   else if (!pmsFresh) status = "PMS5003_FAIL";
 
   // --- Payload đúng schema backend ---
-  char payload[340];
+  char payload[420];
   snprintf(payload, sizeof(payload),
     "{\"schema_version\":1,\"device_id\":\"%s\",\"boot_id\":\"%s\","
     "\"seq\":%lu,\"uptime_ms\":%lu,"
     "\"temperature_c\":%.2f,\"humidity_pct\":%.2f,"
     "\"pm1_ug_m3\":%u,\"pm25_ug_m3\":%u,"
     "\"ir_active\":%s,\"ir_active_duration_ms\":%lu,"
-    "\"ir_raw\":%d,"
+    "\"ir_raw\":%d,\"buzzer_enabled\":%s,"
     "\"sensor_status\":\"%s\"}",
     device_id, bootId,
     (unsigned long)++seq, (unsigned long)now,
@@ -336,6 +352,7 @@ void loop() {
     irActive ? "true" : "false",
     (unsigned long)irDuration,
     flameAnalog,
+    buzzerEnabled ? "true" : "false",
     status);
 
   bool ok = client.publish(mqtt_topic, payload);

@@ -53,7 +53,6 @@ function render() {
   const device = devices[selector.value];
   const current = device?.current;
   const health = current && (streamOnline ? current.health : "OFFLINE");
-  const latched = current?.latched;
   const live = health && health !== "OFFLINE" && health !== "SENSOR_ERROR";
   const risk = live ? current.measured_risk_level : null;
   byId("alarm").dataset.tone = tones[risk] ?? "muted";
@@ -71,8 +70,14 @@ function render() {
     : "Mức chú ý · —");
   byId("high-marker").hidden = !snapshot;
   if (snapshot) byId("high-marker").style.left = `${snapshot.threshold * 100}%`;
-  setText("latch", `Chốt báo cháy · ${current ? (latched ? "Đang giữ" : "Tắt") : "—"}`);
-  byId("latch").dataset.tone = latched ? "red" : "muted";
+  const buzzerOn = current?.buzzer_enabled !== false;
+  const buzzer = byId("buzzer");
+  buzzer.dataset.on = buzzerOn ? "true" : "false";
+  buzzer.disabled = simulated || !streamOnline || !current;
+  setText("buzzer", current ? `Loa · ${buzzerOn ? "Bật" : "Tắt"}` : "Loa · —");
+  buzzer.title = simulated
+    ? "Chỉ điều khiển loa của thiết bị thật qua MQTT"
+    : current ? `Bấm để ${buzzerOn ? "tắt" : "bật"} loa ${selector.value}` : "Chưa có thiết bị";
   for (const [key] of [...climate, ...dust]) setText(key, number(live ? current[key] : null));
   const irRaw = live && Number.isFinite(current.ir_raw) ? String(current.ir_raw) : null;
   const irState = current?.ir_confirmed ? "Đã xác nhận" : current?.ir_active ? "Đang kích hoạt" : "Không kích hoạt";
@@ -222,6 +227,29 @@ function drawChart(id, history, series, dualAxis) {
 }
 
 selector.addEventListener("change", render);
+
+byId("buzzer").addEventListener("click", async () => {
+  const deviceId = selector.value;
+  const current = snapshot?.devices?.[deviceId]?.current;
+  if (source.value !== "mqtt" || !deviceId || !current) return;
+  const button = byId("buzzer");
+  const enabled = current.buzzer_enabled === false;
+  button.disabled = true;
+  try {
+    const response = await fetch(`/api/devices/${encodeURIComponent(deviceId)}/buzzer`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ enabled }),
+    });
+    if (!response.ok) throw new Error(await response.text());
+    current.buzzer_enabled = enabled;
+    render();
+  } catch (error) {
+    console.error("Khong gui duoc lenh loa", error);
+    setText("buzzer", "Lỗi · thử lại");
+    setTimeout(render, 1500);
+  }
+});
 
 function connectSource() {
   stream?.close();

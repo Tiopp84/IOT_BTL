@@ -13,14 +13,20 @@ from typing import Literal
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.sse import EventSourceResponse
 from paho.mqtt import client as mqtt
+from pydantic import BaseModel
 
 from backend.inference import Predictor
-from backend.monitor import Monitor, validate_telemetry
+from backend.monitor import DEVICE_ID, Monitor, validate_telemetry
 
 log = logging.getLogger(__name__)
 TOPIC = "fire/+/telemetry"
 ALERT_TOPIC = "fire/{}/alert"
+CMD_TOPIC = "fire/{}/cmd"
 ALERT_HEARTBEAT_SECONDS = 5.0
+
+
+class BuzzerCommand(BaseModel):
+    enabled: bool
 
 
 @asynccontextmanager
@@ -30,6 +36,7 @@ async def lifespan(app):
     app.state.monitor = monitor
     app.state.lock = lock
     client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2, protocol=mqtt.MQTTv311)
+    app.state.mqtt = client
 
     def on_connect(client, _userdata, _flags, reason_code, _properties):
         if reason_code.is_failure:
@@ -81,7 +88,7 @@ async def lifespan(app):
             for device_id, data in snapshot["devices"].items():
                 current = data["current"]
                 key = (current["health"], current["risk_level"], current["reason"],
-                       current["latched"], current["ir_confirmed"])
+                       current["buzzer_enabled"], current["ir_confirmed"])
                 if key == last_key.get(device_id) and now - last_sent.get(device_id, 0) < ALERT_HEARTBEAT_SECONDS:
                     continue
                 last_key[device_id] = key
@@ -96,7 +103,7 @@ async def lifespan(app):
                     "window": snapshot["window"],
                     "votes": current["votes"],
                     "ir_confirmed": current["ir_confirmed"],
-                    "latched": current["latched"],
+                    "buzzer_enabled": current["buzzer_enabled"],
                     "reason": current["reason"],
                     "timestamp": current["timestamp"],
                 }, ensure_ascii=False)))
@@ -131,6 +138,23 @@ def health(request: Request):
 def status(request: Request):
     with request.app.state.lock:
         return request.app.state.monitor.snapshot()
+
+
+@app.post("/api/devices/{device_id}/buzzer")
+def set_buzzer(device_id: str, command: BuzzerCommand, request: Request):
+    if not DEVICE_ID.fullmatch(device_id):
+        raise HTTPException(400, "Invalid device ID")
+    body = json.dumps({"schema_version": 1, "buzzer_enabled": command.enabled})
+    info = request.app.state.mqtt.publish(CMD_TOPIC.format(device_id), body, qos=1)
+    if info.rc != mqtt.MQTT_ERR_SUCCESS:
+        raise HTTPException(503, "MQTT publish failed")
+    with request.app.state.lock:
+        device = request.app.state.monitor.devices.get(device_id)
+        if device is not None:
+            device.buzzer_enabled = command.enabled
+            if device.current is not None:
+                device.current["buzzer_enabled"] = command.enabled
+    return {"device_id": device_id, "buzzer_enabled": command.enabled}
 
 
 @app.get("/api/events", response_class=EventSourceResponse)
