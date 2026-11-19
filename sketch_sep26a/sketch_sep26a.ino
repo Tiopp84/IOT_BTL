@@ -9,8 +9,10 @@
 // ================== CẤU HÌNH ==================
 
 // 1. Wi-Fi
-const char* ssid     = "Pixel_4168";
-const char* password = "88888888";
+// const char* ssid     = "Pixel_4168";
+// const char* password = "88888888";
+const char* ssid     = "Tplink 2021";
+const char* password = "passkhongco";
 
 
 // 2. MQTT (Mosquitto trong Docker)
