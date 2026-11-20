@@ -1,6 +1,6 @@
 # Lịch sử phát triển và huấn luyện mô hình cảnh báo cháy
 
-Tổng hợp đến 11/11/2026 từ notebook, bundle mô hình và mã nguồn. Bản đang triển khai là LightGBM 13 đặc trưng động. Các chỉ số dưới đây được ghi theo đúng cách đánh giá của từng phiên bản để có thể trích vào báo cáo.
+Lịch sử ban đầu tổng hợp đến 11/11/2026 từ notebook và bundle mô hình. Ngày 20/11/2026, backend chuyển sang clean13 v2 với nhãn khởi phát, loại phần tiếp diễn khỏi dữ liệu học và dùng ngưỡng metadata 0,25. Các chỉ số lịch sử phía dưới thuộc những phiên bản và phép đánh giá được ghi tại từng mục. [Bundle đang chạy](lightgbm_transient_clean_v2_bundle/metadata.json)
 
 ## Các giai đoạn phát triển
 
@@ -12,6 +12,7 @@ Tổng hợp đến 11/11/2026 từ notebook, bundle mô hình và mã nguồn. 
 | Thử nghiệm đặc trưng động | Khảo sát các nhóm đặc trưng động, đồng thời xem kết quả khi giữ lại cả nhóm phiên để thử trên nhóm chưa dùng lúc train. Notebook khảo sát có các cấu hình `baseline16`, `dynamic7` và `dynamic11`. | [Notebook khảo sát](../Model/lightgbm-dynamic-only.ipynb) |
 | LightGBM 13 đặc trưng động | Bỏ mức tuyệt đối của bốn kênh và các trung bình trượt khỏi vector. Thêm chênh lệch sau 1 mẫu và độ lệch chuẩn trượt của hai kênh PM. Giữ chênh lệch 5 mẫu, độ lệch chuẩn nhiệt độ và độ ẩm, cùng tỷ lệ PM2.5/PM1.0. | [Notebook huấn luyện](iot-btl.ipynb) · [Metadata 13 đặc trưng](model_13f/metadata.json) |
 | Tích hợp 13 đặc trưng | Đổi bundle trong Docker, cập nhật bộ trích xuất và lấy ngưỡng từ metadata. Dashboard dùng danh sách 13 cột từ backend. ESP32 tiếp tục gửi payload hiện có và backend phát kết quả qua `fire/<device_id>/alert`. | [Mã suy luận](backend/inference.py) · [Luồng cảnh báo](backend/app.py) |
+| Clean13 v2, 20/11/2026 | Học nền được chọn và cửa sổ khởi phát, loại giai đoạn tiếp diễn khỏi loss. Nạp bundle v2, ngưỡng xác nhận 0,25, chú ý 0,10 trong cấu hình server riêng, chờ đủ sáu mẫu trước điểm đầu tiên. API và dashboard hiển thị ý nghĩa điểm khởi phát. | [Metadata v2](lightgbm_transient_clean_v2_bundle/metadata.json) · [Kết quả v2](lightgbm_transient_clean_v2_bundle/results.json) · [Chính sách server](backend/decision_policy.json) |
 
 ## Cơ sở lựa chọn mô hình
 

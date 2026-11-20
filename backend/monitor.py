@@ -123,27 +123,31 @@ class Monitor:
         else:
             device.samples.append(values)
             features = extract_features(device.samples)
-            score = self.predictor.score(features)
-            device.scores.append(score)
-            device.attention_streak = device.attention_streak + 1 if score >= self.low_threshold else 0
-            device.safe_streak = device.safe_streak + 1 if score < self.low_threshold and not data["ir_active"] else 0
+            history_ready = len(device.samples) >= LAG + 1
+            if history_ready:
+                score = self.predictor.score(features)
+                device.scores.append(score)
+                device.attention_streak = device.attention_streak + 1 if score >= self.low_threshold else 0
+                device.safe_streak = device.safe_streak + 1 if score < self.low_threshold and not data["ir_active"] else 0
             votes = sum(point >= self.threshold for point in device.scores)
             full_window = len(device.scores) == self.window
             health = "OK" if full_window else "WARMUP"
             if full_window and votes >= self.required_votes:
-                risk_level, reason = "FIRE_ALERT", "LightGBM đủ phiếu cảnh báo"
-            elif ir_confirmed and score >= self.low_threshold:
-                risk_level, reason = "FIRE_ALERT", "Flame IR xác nhận và điểm LightGBM tăng"
+                risk_level, reason = "FIRE_ALERT", "Điểm khởi phát LightGBM đủ phiếu cảnh báo"
+            elif ir_confirmed and score is not None and score >= self.low_threshold:
+                risk_level, reason = "FIRE_ALERT", "Flame IR xác nhận và điểm khởi phát tăng"
             elif ir_confirmed:
                 risk_level, reason = "ATTENTION", "Flame IR xác nhận"
             elif device.attention_streak >= ATTENTION_SAMPLES:
-                risk_level, reason = "ATTENTION", "Điểm LightGBM đạt ngưỡng chú ý trong 3 mẫu liên tiếp"
+                risk_level, reason = "ATTENTION", "Điểm khởi phát đạt ngưỡng chú ý trong 3 mẫu liên tiếp"
             elif device.safe_streak >= SAFE_SAMPLES:
-                risk_level, reason = "SAFE", "Đủ 10 mẫu điểm thấp và IR không hoạt động"
+                risk_level, reason = "SAFE", "Điểm khởi phát thấp trong 10 mẫu và IR không hoạt động"
             elif device.attention_streak:
                 reason = f"Đang xác nhận mức chú ý ({device.attention_streak}/{ATTENTION_SAMPLES} mẫu)"
+            elif not history_ready:
+                reason = f"Đang tích lũy lịch sử cảm biến ({len(device.samples)}/{LAG + 1} mẫu)"
             else:
-                reason = "Đang tích lũy mẫu" if not full_window else "Đang xác nhận mức an toàn"
+                reason = "Đang tích lũy điểm khởi phát" if not full_window else "Đang theo dõi khởi phát"
 
         measured_risk_level, measured_reason = risk_level, reason
         timestamp = time()
@@ -179,7 +183,7 @@ class Monitor:
                 current["measured_reason"] = current["reason"]
                 device.record_state("OFFLINE", None, current["measured_reason"], time())
             devices[device_id] = dict(current=current, history=list(device.history), events=list(device.events))
-        return dict(mqtt_connected=self.connected, threshold=self.threshold, window=self.window,
+        return dict(model=self.predictor.info, mqtt_connected=self.connected, threshold=self.threshold, window=self.window,
                     required_votes=self.required_votes, feature_names=self.predictor.features,
                     low_threshold=self.low_threshold, attention_samples=ATTENTION_SAMPLES,
                     ir_confirm_ms=IR_CONFIRM_MS, devices=devices)

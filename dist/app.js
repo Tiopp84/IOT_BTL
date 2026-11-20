@@ -7,7 +7,7 @@ const clock = new Intl.DateTimeFormat("vi-VN", { hour: "2-digit", minute: "2-dig
 const formatTime = (stamp) => clock.format(new Date(stamp * 1000));
 
 const riskLabels = {
-  SAFE: "An toàn",
+  SAFE: "Điểm khởi phát thấp",
   ATTENTION: "Cần chú ý",
   FIRE_ALERT: "Cảnh báo cháy",
 };
@@ -35,6 +35,7 @@ function render() {
     ? (streamOnline ? "Đang giả lập · 1 Hz" : "Giả lập · đang kết nối")
     : (streamOnline ? (connected ? "MQTT trực tuyến" : "MQTT gián đoạn") : "Đang kết nối web");
   setText("connection-text", connectionText);
+  setText("model-name", snapshot?.model?.name ?? "LightGBM · đang chờ model");
   byId("restart-simulation").hidden = !simulated;
   byId("simulation-phase").hidden = !simulated;
   setText("simulation-phase", streamOnline ? snapshot?.simulation_phase ?? "" : "Đang khởi tạo kịch bản giả lập…");

@@ -1,6 +1,6 @@
 # Thiết kế suy luận LightGBM với 13 đặc trưng động
 
-Cập nhật ngày 11/11/2026. Backend nạp `model_13f/lightgbm_dynamic_model.joblib` khi khởi động. Tên cột, thứ tự đầu vào và cấu hình bỏ phiếu lấy từ metadata cùng thư mục. Cấu hình này dùng bốn số đo môi trường có sẵn trong payload ESP32. [Metadata](model_13f/metadata.json) · [Mã suy luận](backend/inference.py)
+Cập nhật ngày 20/11/2026. Backend nạp `lightgbm_transient_clean_v2_bundle/lightgbm_transient_v2.joblib` khi khởi động. Tên cột, thứ tự đầu vào và ngưỡng phân lớp lấy từ metadata cùng thư mục. Luật bỏ phiếu và ngưỡng chú ý nằm trong `backend/decision_policy.json`. Cấu hình dùng bốn số đo môi trường từ payload ESP32. [Metadata](lightgbm_transient_clean_v2_bundle/metadata.json) · [Mã suy luận](backend/inference.py)
 
 ## Tạo đặc trưng trực tuyến
 
@@ -22,12 +22,14 @@ ESP32 gửi ở nhịp danh định 1 Hz, nên chênh lệch 5 mẫu tương ứ
 
 ## Điểm mô hình và luật cảnh báo
 
-Backend đưa một hàng 13 cột vào `predict_proba` và lấy điểm của lớp `Fire Alarm = 1`. `p_fire` là điểm lớp dương của LightGBM. Tầng luật sử dụng điểm đó, số phiếu và cờ Flame IR để tạo `risk_level`. Giá trị IR được xác nhận khi `ir_active` đúng và `ir_active_duration_ms` từ 2000 ms trở lên. ADC tùy chọn `ir_raw` được hiển thị trên dashboard.
+Backend chờ đủ sáu mẫu liên tục rồi đưa một hàng 13 cột vào `predict_proba` và lấy điểm của lớp khởi phát `training_label = 1`. Trường `p_fire` mang điểm này để các thiết bị hiện có đọc được. API trả `model.score_kind = onset`, tên model và SHA-256 bundle. `clean13` không dùng hai đặc trưng baseline tương đối.
+
+Tầng luật sử dụng điểm, số phiếu và cờ Flame IR để tạo `risk_level`. IR được xác nhận khi `ir_active` đúng và `ir_active_duration_ms` từ 2000 ms trở lên. ADC tuỳ chọn `ir_raw` được hiển thị trên dashboard.
 
 | Tham số | Giá trị chạy |
 |---|---:|
-| Ngưỡng thấp `T_LOW` | 0,30 |
-| Ngưỡng cao `T_HIGH` | 0,70 |
+| Ngưỡng thấp `T_LOW`, cấu hình server | 0,10 |
+| Ngưỡng cao `T_HIGH`, từ metadata | 0,25 |
 | Kích thước cửa sổ điểm | 5 |
 | Số phiếu tối thiểu | 3 |
 | Số mẫu đạt ngưỡng thấp liên tiếp để xác nhận `ATTENTION` từ model | 3 |
@@ -35,17 +37,17 @@ Backend đưa một hàng 13 cột vào `predict_proba` và lấy điểm của 
 
 Áp dụng theo thứ tự ưu tiên:
 
-1. Đặt `FIRE_ALERT` nếu đủ 5 điểm và ít nhất 3 điểm đạt 0,70, hoặc Flame IR đã xác nhận và điểm hiện tại đạt 0,30. Nhánh IR kết hợp điểm có thể kích hoạt trong giai đoạn `WARMUP`.
-2. Đặt `ATTENTION` nếu 3 mẫu hợp lệ liên tiếp đạt 0,30 hoặc Flame IR đã xác nhận.
-3. Đặt `SAFE` sau 10 mẫu hợp lệ liên tiếp dưới 0,30, với `ir_active` tắt trong cả chuỗi.
-4. Giữ mức rủi ro `null` trong các trường hợp đang tích lũy hoặc xác nhận mức an toàn.
+1. Đặt `FIRE_ALERT` nếu đủ 5 điểm hợp lệ và ít nhất 3 điểm đạt 0,25, hoặc Flame IR đã xác nhận và điểm hiện tại đạt 0,10. Nhánh IR kết hợp điểm chỉ dùng sau khi đã có đủ sáu mẫu tính đặc trưng.
+2. Đặt `ATTENTION` nếu 3 điểm liên tiếp đạt 0,10 hoặc Flame IR đã xác nhận.
+3. Đặt `SAFE` sau 10 điểm liên tiếp dưới 0,10, với `ir_active` tắt trong cả chuỗi. Dashboard diễn giải là điểm khởi phát thấp.
+4. Giữ mức rủi ro `null` khi đang tích luỹ lịch sử hoặc điểm.
 
-`health` mô tả tình trạng dữ liệu riêng với `risk_level`. `WARMUP` nghĩa là cửa sổ có dưới 5 điểm, `OK` nghĩa là đủ điểm, `SENSOR_ERROR` nghĩa là mẫu báo lỗi cảm biến và `OFFLINE` nghĩa là mất MQTT hoặc quá thời hạn nhận mẫu. Mức cảnh báo không bị chốt cứng: khi điều kiện cháy hết, `risk_level` tự hạ theo mẫu hiện tại. Dashboard dùng `measured_risk_level` và `measured_reason` để hiển thị đánh giá theo mẫu mới nhất. [Luật quyết định trong backend](backend/monitor.py)
+`health` mô tả tình trạng dữ liệu riêng với `risk_level`. `WARMUP` gồm thời gian chờ sáu mẫu cảm biến và chờ đủ năm điểm, `OK` nghĩa là đủ điểm, `SENSOR_ERROR` nghĩa là mẫu báo lỗi cảm biến và `OFFLINE` nghĩa là mất MQTT hoặc quá thời hạn nhận mẫu. Ở 1 Hz, cửa sổ bỏ phiếu đầu tiên đủ tại mẫu thứ 10. Điểm thấp của model khởi phát chưa xác nhận sự kiện đã kết thúc. Dashboard dùng `measured_risk_level` và `measured_reason` theo từng mẫu. [Luật quyết định](backend/monitor.py)
 
 ## Huấn luyện và xuất mô hình
 
-Notebook `iot-btl.ipynb` dùng Smoke Detection IoT Dataset, đọc 62.630 dòng theo output đã lưu. Notebook sắp xếp theo `UTC`, `CNT` và tách phiên khi khoảng nhảy UTC lớn hơn 10 giây. Trong mỗi phiên, notebook chia theo thời gian thành 60% train, 20% validation và 20% test. Đặc trưng được tính riêng theo phiên bên trong từng tập. Số mẫu train, validation và test lần lượt là 37.576, 12.522 và 12.532. Nhãn là cột `Fire Alarm`.
+Bundle v2 dùng nhãn khởi phát suy ra từ đường cảm biến. Chỉ nền được chọn và các cửa sổ khởi phát tham gia học, các đoạn tiếp diễn/hồi phục bị loại khỏi loss. Bộ sạch có 14.864 hàng, gồm 832 mẫu dương. Validation giữ các cặp phiên gần trùng trong nhóm A/B/C. [Notebook](train_lightgbm_transient_clean_hybrid_kaggle.ipynb) · [Metadata](lightgbm_transient_clean_v2_bundle/metadata.json)
 
-LightGBM dùng 150 cây, độ sâu tối đa 6, tối đa 31 lá mỗi cây, tốc độ học 0,05 và `random_state=42`. Notebook fit trên train, dùng `predict` để tính F1, precision và recall trên test, dùng `predict_proba` để tính ROC AUC. Ngưỡng vận hành 0,30 và 0,70 được ghi cố định khi xuất metadata. Phép đánh giá bỏ phiếu minh họa trong notebook dùng nhãn dự đoán tức thời với cửa sổ cho phép chưa đủ 5 mẫu. Backend dùng ngưỡng 0,70 trên điểm lớp dương và yêu cầu đủ cửa sổ. [Notebook huấn luyện](iot-btl.ipynb) · [Kết quả và giới hạn đánh giá](Lich_su_phat_trien_va_huan_luyen.md)
+LightGBM dùng 150 cây, độ sâu tối đa 6, tối đa 31 lá, learning rate 0,05 và random_state=42. Notebook so sánh clean13/clean15 và quét ngưỡng 0,05–0,25. Model xuất là clean13, ngưỡng 0,25. Ngưỡng chú ý 0,10 do người tích hợp chọn cho server. Các chỉ số trong bundle chấm điểm/phân lớp tức thời, hiệu năng luật 3/5 cần đo riêng. [Kết quả bundle](lightgbm_transient_clean_v2_bundle/results.json)
 
-Chạy các cell theo thứ tự để xuất `models/lightgbm_dynamic_model.joblib` và `models/metadata.json`. Đặt hai file xuất cùng nhau trong `Src/model_13f` rồi chạy `docker compose up -d --build --wait` từ `Src`. Backend kiểm tra thứ tự và số lượng đặc trưng khi nạp bundle. [Dockerfile](Dockerfile) · [Kiến trúc và MQTT](Thiet_ke_he_thong_IoT_canh_bao_chay.md)
+Đặt `lightgbm_transient_v2.joblib` và `metadata.json` cùng trong `Src/lightgbm_transient_clean_v2_bundle`, rồi chạy `docker compose up -d --build --wait` từ `Src`. Backend kiểm tra variant clean13, thứ tự cột và lớp dương khi khởi động. [Dockerfile](Dockerfile) · [Kiến trúc và MQTT](Thiet_ke_he_thong_IoT_canh_bao_chay.md)

@@ -9,10 +9,10 @@
 // ================== CẤU HÌNH ==================
 
 // 1. Wi-Fi
-// const char* ssid     = "Pixel_4168";
-// const char* password = "88888888";
-const char* ssid     = "Tplink 2021";
-const char* password = "passkhongco";
+const char* ssid     = "Pixel_4168";
+const char* password = "88888888";
+// const char* ssid     = "Tplink 2021";
+// const char* password = "passkhongco";
 
 
 // 2. MQTT (Mosquitto trong Docker)
@@ -178,7 +178,7 @@ const char *riskText(bool fresh) {
   if (!fresh) return "OFFLINE";
   if (riskLevel == "FIRE_ALERT") return "CHAY!";
   if (riskLevel == "ATTENTION")  return "CHU Y";
-  if (riskLevel == "SAFE")       return "AN TOAN";
+  if (riskLevel == "SAFE")       return "THEO DOI";
   if (healthState == "SENSOR_ERROR") return "LOI CB";
   if (healthState == "OFFLINE")      return "MAT DL";
   return "THEO DOI";
@@ -208,8 +208,8 @@ void updateOled(int flame, uint32_t irDuration, float t, float h,
 
   oled.setTextSize(1);
   oled.setCursor(0, 30);
-  if (isnan(pFire)) oled.print("p=--");
-  else              oled.printf("p=%.2f", pFire);
+  if (isnan(pFire)) oled.print("on=--");
+  else              oled.printf("on=%.2f", pFire);
   oled.setCursor(70, 30);
   oled.printf("v=%d/%d", alertVotes, alertWindow);
 

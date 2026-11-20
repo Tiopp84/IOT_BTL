@@ -1,6 +1,6 @@
 # Thiết kế hệ thống IoT cảnh báo cháy ba mức
 
-Cập nhật ngày 11/11/2026 theo backend, Docker Compose và dashboard trong `Src`. Hệ thống là nguyên mẫu giám sát cho bài tập lớn. ESP32 gửi số đo môi trường và tín hiệu hồng ngoại. Backend chạy LightGBM với 13 đặc trưng động, hợp nhất kết quả với tín hiệu Flame IR và trả mức cảnh báo qua MQTT. Dashboard nhận cùng trạng thái qua HTTP.
+Cập nhật ngày 20/11/2026 theo backend, Docker Compose và dashboard trong `Src`. Hệ thống là nguyên mẫu giám sát cho bài tập lớn. ESP32 gửi số đo môi trường và tín hiệu hồng ngoại. Backend chạy bundle clean13 v2 với 13 đặc trưng động, chấm điểm khởi phát, hợp nhất kết quả với Flame IR và trả mức cảnh báo qua MQTT. Dashboard nhận cùng trạng thái qua HTTP.
 
 ## Kiến trúc và triển khai
 
@@ -48,26 +48,28 @@ Ví dụ bản tin gửi xuống `fire/node01/alert`:
   "health": "OK",
   "risk_level": "FIRE_ALERT",
   "p_fire": 0.82,
-  "threshold": 0.70,
+  "score_kind": "onset",
+  "model_name": "LightGBM_Transient_Clean_v2",
+  "threshold": 0.25,
   "window": 5,
   "votes": 3,
   "ir_confirmed": false,
   "buzzer_enabled": true,
-  "reason": "LightGBM đủ phiếu cảnh báo",
+  "reason": "Điểm khởi phát LightGBM đủ phiếu cảnh báo",
   "timestamp": 1794383496.37
 }
 ```
 
-`timestamp` là thời điểm backend nhận mẫu, theo Unix epoch tính bằng giây. Bản tin heartbeat có thể mang cùng timestamp với bản tin trước. Khi offline, backend xuất `p_fire: null` và `risk_level: null`. Trạng thái cảnh báo không bị chốt cứng mà bám theo mẫu hiện tại. Firmware chịu trách nhiệm điều khiển còi, theo dõi timeout và kiểm tra gói nhận trên topic `alert`. Mã firmware và kết quả đo phần cứng cần được dẫn riêng khi mô tả hành vi thực tế. [Backend MQTT](backend/app.py) · [Xử lý telemetry](backend/monitor.py)
+`timestamp` là thời điểm backend nhận mẫu, theo Unix epoch tính bằng giây. Bản tin heartbeat có thể mang cùng timestamp với bản tin trước. Khi offline, backend xuất `p_fire: null` và `risk_level: null`. `p_fire` hiện mang điểm khởi phát, được mô tả thêm bằng `score_kind`. `SAFE` biểu thị điểm khởi phát thấp, chưa xác nhận hết cháy. Firmware điều khiển còi, theo dõi timeout và kiểm tra gói nhận trên topic `alert`. [Backend MQTT](backend/app.py) · [Xử lý telemetry](backend/monitor.py)
 
 Dashboard có nút bật/tắt loa. Backend nhận `POST /api/devices/<device_id>/buzzer` với `{"enabled": false}` rồi publish `fire/<device_id>/cmd`. ESP32 subscribe topic này, đổi trạng thái còi và gửi `buzzer_enabled` trở lại trong telemetry. Lệnh tắt loa không làm mất cảnh báo trên màn hình hoặc dashboard.
 
 ## Luồng giám sát và dashboard
 
 1. Backend kiểm tra bản tin và bỏ các mẫu trùng, sai thứ tự hoặc thuộc phiên khởi động cũ còn lưu trong bộ nhớ.
-2. Với mỗi mẫu hợp lệ, backend tính đặc trưng và điểm `p_fire`. Luật cảnh báo dùng cửa sổ 5 điểm cùng tín hiệu Flame IR. [Chi tiết mô hình và luật](thi_t_k_t_ng_quan_h_th_ng_iot_lightgbm.md)
+2. Backend tích luỹ sáu mẫu liên tục trước điểm `p_fire` đầu tiên. Luật cảnh báo dùng 3/5 điểm đạt ngưỡng 0,25 cùng nhánh Flame IR ở mức 0,10. [Chi tiết mô hình và luật](thi_t_k_t_ng_quan_h_th_ng_iot_lightgbm.md)
 3. Dashboard mở `GET /api/events` để nhận cấu hình và trạng thái thay đổi. Công cụ kiểm tra có thể đọc ảnh chụp trạng thái bằng `GET /api/status`. Lịch sử giữ tối đa 120 mẫu và 30 sự kiện mỗi node trong RAM. Biểu đồ hiện phần dữ liệu trong 30 giây tính đến mẫu cuối.
-4. Backend đánh dấu `OFFLINE` khi mất MQTT hoặc 5 giây không có mẫu mới. Dashboard hiển thị mức theo số đo mới nhất. Khi mất dữ liệu, mức hiện tại hiển thị trạng thái mất dữ liệu. Mức cảnh báo bám theo trạng thái hiện tại và tự hạ khi điều kiện cháy hết; không có chốt cứng qua lỗi cảm biến hay đổi `boot_id`.
+4. Backend đánh dấu `OFFLINE` khi mất MQTT hoặc 5 giây không có mẫu mới. Dashboard hiển thị mức theo số đo mới nhất và trạng thái mất dữ liệu. Lịch sử đặc trưng và phiếu được reset khi lỗi hoặc đổi boot. Điểm khởi phát giảm được ghi nhận như điểm thấp, chưa phải phép xác nhận sự kiện đã kết thúc.
 5. Hai kịch bản **Khói đột ngột** và **Nhiệt tăng nhanh** tạo một mẫu mỗi giây qua `GET /api/simulation/events`. Mỗi lượt có 12 giây nền trước sự kiện rồi đến pha hồi phục. Mỗi luồng SSE chạy trên bộ đệm riêng và chỉ gửi kết quả đến trình duyệt.
 
 Để theo dõi bản tin xuống thiết bị trong phiên thử nghiệm, dùng `make alerts`. Một lượt kiểm tra đầu cuối cần đối chiếu telemetry, trạng thái trên dashboard, bản tin `alert` và đầu ra LED/còi trên board. Phiên giả lập kiểm tra luồng suy luận và giao diện. [Makefile](Makefile) · [Lịch sử phát triển và đánh giá](Lich_su_phat_trien_va_huan_luyen.md)

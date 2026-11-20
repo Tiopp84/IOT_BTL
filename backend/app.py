@@ -99,6 +99,8 @@ async def lifespan(app):
                     "health": current["health"],
                     "risk_level": current["risk_level"],
                     "p_fire": current["p_fire"],
+                    "score_kind": snapshot["model"]["score_kind"],
+                    "model_name": snapshot["model"]["name"],
                     "threshold": snapshot["threshold"],
                     "window": snapshot["window"],
                     "votes": current["votes"],

@@ -1,10 +1,11 @@
 *
 !backend/
 !backend/*.py
+!backend/decision_policy.json
 !requirements.txt
-!model_13f/
-!model_13f/metadata.json
-!model_13f/lightgbm_dynamic_model.joblib
+!lightgbm_transient_clean_v2_bundle/
+!lightgbm_transient_clean_v2_bundle/metadata.json
+!lightgbm_transient_clean_v2_bundle/lightgbm_transient_v2.joblib
 !dist/
 !dist/*
 !nginx.conf

@@ -1,0 +1,6 @@
+session_id,block,reference_start_cnt,reference_end_cnt,temperature_baseline,pm25_baseline
+1,1,0,9,27.244999999999997,2.365
+2,2,0,9,20.066000000000003,0.0
+3,3,0,9,12.845,0.0
+4,4,0,9,20.57,2.245
+5,5,0,9,20.285,2.365

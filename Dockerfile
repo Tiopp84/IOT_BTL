@@ -7,6 +7,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends libgomp1 \
 COPY requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt
 COPY backend/ ./backend/
-COPY model_13f/ ./model_13f/
+COPY lightgbm_transient_clean_v2_bundle/metadata.json lightgbm_transient_clean_v2_bundle/lightgbm_transient_v2.joblib ./lightgbm_transient_clean_v2_bundle/
 USER 10001
 CMD ["uvicorn", "backend.app:app", "--host", "0.0.0.0", "--port", "8000"]

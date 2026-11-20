@@ -2,6 +2,8 @@
 
 Dashboard giám sát bài tập lớn IoT. Stack gồm Mosquitto, FastAPI chạy model LightGBM đã train và Nginx phục vụ dashboard. Backend đọc MQTT và gửi trạng thái đến trình duyệt qua SSE.
 
+Backend hiện nạp bundle `clean13 v2` trong `lightgbm_transient_clean_v2_bundle`, gồm `lightgbm_transient_v2.joblib` và `metadata.json`. Model dùng 13 đặc trưng động, chấm điểm khởi phát từ mẫu thứ sáu liên tục. `GET /api/status` trả thêm `model` với tên, mục tiêu, ngưỡng và SHA-256 để kiểm tra bundle đang chạy. Dashboard hiển thị tên model và điểm khởi phát.
+
 ## Chạy trên máy có Docker Compose
 
 Từ thư mục `BTL/Src`:
@@ -86,17 +88,19 @@ Backend publish trạng thái model lên `fire/<device_id>/alert` bằng QoS 1, 
   "health": "OK",
   "risk_level": "FIRE_ALERT",
   "p_fire": 0.98,
-  "threshold": 0.70,
+  "score_kind": "onset",
+  "model_name": "LightGBM_Transient_Clean_v2",
+  "threshold": 0.25,
   "window": 5,
   "votes": 5,
   "ir_confirmed": false,
   "buzzer_enabled": true,
-  "reason": "LightGBM đủ phiếu cảnh báo",
+  "reason": "Điểm khởi phát LightGBM đủ phiếu cảnh báo",
   "timestamp": 1794383496.37
 }
 ```
 
-`risk_level` có thể là `SAFE`, `ATTENTION`, `FIRE_ALERT` hoặc `null` khi đang tích luỹ mẫu; `health` là `OK`, `WARMUP`, `SENSOR_ERROR`, `OFFLINE`. Nếu quá 15 giây không nhận bản tin mới, thiết bị coi backend mất kết nối. Trạng thái cảnh báo không bị chốt cứng: khi điều kiện cháy hết, `risk_level` trở về mức hiện tại.
+`risk_level` có thể là `SAFE`, `ATTENTION`, `FIRE_ALERT` hoặc `null` khi đang tích luỹ mẫu. `health` là `OK`, `WARMUP`, `SENSOR_ERROR`, `OFFLINE`. Nếu quá 15 giây không nhận bản tin mới, thiết bị coi backend mất kết nối. Trường `p_fire` mang điểm khởi phát của model mới để firmware và log hiện có tiếp tục đọc được. `SAFE` được hiển thị là điểm khởi phát thấp. Model đã loại giai đoạn tiếp diễn khỏi dữ liệu học, nên điểm thấp chưa xác nhận sự kiện đã kết thúc. Mức cảnh báo hiện được cập nhật theo từng chuỗi điểm.
 
 ### Điều khiển loa từ dashboard
 
@@ -110,12 +114,16 @@ ESP32 subscribe topic `cmd`, tắt/bật còi ngay và gửi lại `buzzer_enabl
 
 ## Chính sách demo
 
-- Backend tạo 13 đặc trưng động đúng thứ tự của `model_13f/metadata.json` và nạp `lightgbm_dynamic_model.joblib` một lần khi khởi động. Đầu vào model gồm 8 chênh lệch sau 1 và 5 mẫu, 4 độ lệch chuẩn trượt 5 mẫu và tỷ lệ PM2.5/PM1.0. Ngưỡng thấp, ngưỡng cao và cửa sổ bỏ phiếu cũng lấy từ metadata. Khoảng gián đoạn lớn hơn 2,5 giây theo uptime, mất số thứ tự, đổi phiên hoặc mất kết nối sẽ bắt đầu lại cửa sổ.
-- LightGBM xác nhận cảnh báo khi ít nhất 3 trong đủ 5 điểm đạt 0,70. Flame IR kích hoạt từ 2 giây kết hợp điểm từ 0,30 cũng xác nhận cảnh báo. Mức cần chú ý yêu cầu 3 mẫu liên tiếp đạt 0,30 hoặc Flame IR đã xác nhận. Mức an toàn yêu cầu 10 mẫu liên tiếp dưới 0,30 và IR tắt.
-- Dashboard giữ tối đa 120 mẫu và 30 sự kiện cho mỗi thiết bị trong RAM. Mức cảnh báo bám theo trạng thái hiện tại, không chốt cứng; khi hết điều kiện cháy, thiết bị và dashboard tự trở về mức thấp hơn. Cảnh báo được hiển thị trên API và dashboard.
+- Backend nạp `lightgbm_transient_clean_v2_bundle/lightgbm_transient_v2.joblib` một lần khi khởi động và kiểm tra đúng thứ tự 13 cột trong metadata. Đầu vào gồm 8 chênh lệch sau 1 và 5 mẫu, 4 độ lệch chuẩn trượt 5 mẫu và tỷ lệ PM. Bundle `clean13` không dùng đặc trưng baseline tương đối.
+- Ngưỡng xác nhận 0,25 lấy từ `classification_threshold` trong metadata của bundle. Ngưỡng chú ý 0,10 và luật 3/5 nằm riêng trong `backend/decision_policy.json`. Ngưỡng chú ý là cấu hình vận hành do người tích hợp chọn. Các chỉ số phân lớp trong bundle dùng điểm tức thời; hiệu năng sau luật 3/5 cần đánh giá riêng.
+- Chờ đủ 6 mẫu cảm biến liên tục trước điểm đầu tiên, sau đó chờ đủ 5 điểm hợp lệ để áp dụng 3/5. Ở nhịp 1 Hz, nhánh bỏ phiếu sẵn sàng từ mẫu thứ 10. Gián đoạn trên 2,5 giây theo uptime, mất số thứ tự, đổi boot, lỗi cảm biến hoặc mất MQTT sẽ reset lịch sử và phiếu.
+- LightGBM xác nhận cảnh báo khi ít nhất 3 trong đủ 5 điểm đạt 0,25. Flame IR kích hoạt từ 2 giây kết hợp điểm hợp lệ từ 0,10 cũng xác nhận cảnh báo. Mức cần chú ý yêu cầu 3 điểm liên tiếp đạt 0,10 hoặc IR đã xác nhận. Sau 10 điểm dưới 0,10 và IR tắt, dashboard hiển thị điểm khởi phát thấp.
+- Dashboard giữ tối đa 120 mẫu và 30 sự kiện mỗi thiết bị trong RAM. Firmware nhận `p_fire` như trước, mã nguồn OLED dùng `on=` để biểu thị điểm khởi phát và `THEO DOI` cho mã trạng thái `SAFE`. Cần nạp firmware cập nhật để các chữ này xuất hiện trên board.
 - `GET /api/status` trả trạng thái JSON. `GET /api/events` phát trạng thái thay đổi qua SSE. `POST /api/devices/<device_id>/buzzer` bật/tắt còi trên thiết bị.
 
 ```bash
 docker compose logs -f backend
 docker compose down
 ```
+
+Kiểm tra schema, công thức đặc trưng và vòng khởi tạo bằng `python -m unittest discover -s tests -v` trong môi trường có các thư viện từ `requirements.txt`.
