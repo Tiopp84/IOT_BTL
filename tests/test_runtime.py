@@ -26,6 +26,7 @@ class FeatureTests(unittest.TestCase):
 
     def test_new_bundle_schema_and_policy(self):
         predictor = Predictor()
+        self.assertEqual(predictor.info['name'], 'LightGBM_Clean13_Field_v2')
         self.assertEqual(predictor.info['variant'], 'clean13')
         self.assertEqual(predictor.info['score_kind'], 'onset')
         self.assertEqual(predictor.features, list(predictor.model.feature_name_))
@@ -77,6 +78,48 @@ class MonitorTests(unittest.TestCase):
         self.assertEqual(current['votes'], 3)
         self.assertEqual(current['risk_level'], 'FIRE_ALERT')
         self.assertEqual(monitor.snapshot()['model']['variant'], 'clean13')
+
+    def pm_run(self, values, ir=False):
+        predictor = StubPredictor([.99] * (len(values) - 5))
+        predictor.policy = {**predictor.policy, "pm_trend_gate": {
+            "enabled": True, "minimum_drop_ug_m3": 1.0}}
+        monitor = Monitor(predictor)
+        for seq, (pm1, pm25) in enumerate(values, 1):
+            data = telemetry(seq)
+            data.update(pm1_ug_m3=pm1, pm25_ug_m3=pm25,
+                        ir_active=ir, ir_active_duration_ms=2000 if ir else 0)
+            monitor.accept('test-node', data, validate_telemetry('test-node', data))
+        return monitor.devices['test-node'].current
+
+    def test_declining_pm_blocks_votes_without_changing_score(self):
+        current = self.pm_run([(50-i, 70-i) for i in range(10)])
+        self.assertEqual(current['p_fire'], .99)
+        self.assertTrue(current['pm_declining'])
+        self.assertFalse(current['onset_vote_eligible'])
+        self.assertEqual(current['votes'], 0)
+        self.assertNotIn(current['risk_level'], ('FIRE_ALERT', 'SAFE', 'ATTENTION'))
+
+    def test_rising_or_mixed_pm_remains_eligible(self):
+        for values in ([(i, i*2) for i in range(10)],
+                       [(50-i, 70+i) for i in range(10)],
+                       [(20, 30)] * 10):
+            with self.subTest(values=values):
+                current = self.pm_run(values)
+                self.assertFalse(current['pm_declining'])
+                self.assertEqual(current['votes'], 5)
+                self.assertEqual(current['risk_level'], 'FIRE_ALERT')
+
+    def test_declining_pm_does_not_suppress_ir_confirmation(self):
+        current = self.pm_run([(50-i, 70-i) for i in range(10)], ir=True)
+        self.assertEqual(current['votes'], 0)
+        self.assertEqual(current['risk_level'], 'FIRE_ALERT')
+
+    def test_decline_does_not_erase_existing_votes(self):
+        values = [(10+i, 20+i) for i in range(10)] + [(0, 0)]
+        current = self.pm_run(values)
+        self.assertTrue(current['pm_declining'])
+        self.assertEqual(current['votes'], 4)
+        self.assertEqual(current['risk_level'], 'FIRE_ALERT')
 
     def test_sample_gap_resets_history_and_votes(self):
         predictor = StubPredictor([.26] * 5)

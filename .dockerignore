@@ -3,9 +3,9 @@
 !backend/*.py
 !backend/decision_policy.json
 !requirements.txt
-!lightgbm_transient_clean_v2_bundle/
-!lightgbm_transient_clean_v2_bundle/metadata.json
-!lightgbm_transient_clean_v2_bundle/lightgbm_transient_v2.joblib
+!lightgbm_clean13_field_v2_bundle/
+!lightgbm_clean13_field_v2_bundle/metadata.json
+!lightgbm_clean13_field_v2_bundle/lightgbm_clean13_field_v2.joblib
 !dist/
 !dist/*
 !nginx.conf

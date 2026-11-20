@@ -2,7 +2,7 @@
 
 Dashboard giám sát bài tập lớn IoT. Stack gồm Mosquitto, FastAPI chạy model LightGBM đã train và Nginx phục vụ dashboard. Backend đọc MQTT và gửi trạng thái đến trình duyệt qua SSE.
 
-Backend hiện nạp bundle `clean13 v2` trong `lightgbm_transient_clean_v2_bundle`, gồm `lightgbm_transient_v2.joblib` và `metadata.json`. Model dùng 13 đặc trưng động, chấm điểm khởi phát từ mẫu thứ sáu liên tục. `GET /api/status` trả thêm `model` với tên, mục tiêu, ngưỡng và SHA-256 để kiểm tra bundle đang chạy. Dashboard hiển thị tên model và điểm khởi phát.
+Backend hiện nạp bundle `clean13 field v2` trong `lightgbm_clean13_field_v2_bundle`, gồm `lightgbm_clean13_field_v2.joblib` và `metadata.json`. Model dùng 13 đặc trưng động, chấm điểm khởi phát từ mẫu thứ sáu liên tục. `GET /api/status` trả thêm `model` với tên, mục tiêu, ngưỡng và SHA-256 để kiểm tra bundle đang chạy. Dashboard hiển thị tên model và điểm khởi phát.
 
 ## Chạy trên máy có Docker Compose
 
@@ -89,7 +89,7 @@ Backend publish trạng thái model lên `fire/<device_id>/alert` bằng QoS 1, 
   "risk_level": "FIRE_ALERT",
   "p_fire": 0.98,
   "score_kind": "onset",
-  "model_name": "LightGBM_Transient_Clean_v2",
+  "model_name": "LightGBM_Clean13_Field_v2",
   "threshold": 0.25,
   "window": 5,
   "votes": 5,
@@ -114,7 +114,7 @@ ESP32 subscribe topic `cmd`, tắt/bật còi ngay và gửi lại `buzzer_enabl
 
 ## Chính sách demo
 
-- Backend nạp `lightgbm_transient_clean_v2_bundle/lightgbm_transient_v2.joblib` một lần khi khởi động và kiểm tra đúng thứ tự 13 cột trong metadata. Đầu vào gồm 8 chênh lệch sau 1 và 5 mẫu, 4 độ lệch chuẩn trượt 5 mẫu và tỷ lệ PM. Bundle `clean13` không dùng đặc trưng baseline tương đối.
+- Backend nạp `lightgbm_clean13_field_v2_bundle/lightgbm_clean13_field_v2.joblib` một lần khi khởi động và kiểm tra đúng thứ tự 13 cột trong metadata. Đầu vào gồm 8 chênh lệch sau 1 và 5 mẫu, 4 độ lệch chuẩn trượt 5 mẫu và tỷ lệ PM. Bundle `clean13` không dùng đặc trưng baseline tương đối.
 - Ngưỡng xác nhận 0,25 lấy từ `classification_threshold` trong metadata của bundle. Ngưỡng chú ý 0,10 và luật 3/5 nằm riêng trong `backend/decision_policy.json`. Ngưỡng chú ý là cấu hình vận hành do người tích hợp chọn. Các chỉ số phân lớp trong bundle dùng điểm tức thời; hiệu năng sau luật 3/5 cần đánh giá riêng.
 - Chờ đủ 6 mẫu cảm biến liên tục trước điểm đầu tiên, sau đó chờ đủ 5 điểm hợp lệ để áp dụng 3/5. Ở nhịp 1 Hz, nhánh bỏ phiếu sẵn sàng từ mẫu thứ 10. Gián đoạn trên 2,5 giây theo uptime, mất số thứ tự, đổi boot, lỗi cảm biến hoặc mất MQTT sẽ reset lịch sử và phiếu.
 - LightGBM xác nhận cảnh báo khi ít nhất 3 trong đủ 5 điểm đạt 0,25. Flame IR kích hoạt từ 2 giây kết hợp điểm hợp lệ từ 0,10 cũng xác nhận cảnh báo. Mức cần chú ý yêu cầu 3 điểm liên tiếp đạt 0,10 hoặc IR đã xác nhận. Sau 10 điểm dưới 0,10 và IR tắt, dashboard hiển thị điểm khởi phát thấp.
@@ -127,3 +127,9 @@ docker compose down
 ```
 
 Kiểm tra schema, công thức đặc trưng và vòng khởi tạo bằng `python -m unittest discover -s tests -v` trong môi trường có các thư viện từ `requirements.txt`.
+
+### Bộ lọc PM giảm ở tầng quyết định
+
+Cấu hình `backend/decision_policy.json` bật `pm_trend_gate`, với biên giảm ban đầu 1 µg/m³. Chỉ chặn phiếu mới và chuỗi chú ý từ model khi cả PM1 và PM2.5 đều giảm ít nhất biên này sau 5 khoảng mẫu, đồng thời trung bình 3 mẫu gần nhất giảm ít nhất biên so với 3 mẫu trước. Biên này là cấu hình vận hành ban đầu, chưa được tối ưu bằng validation có nhãn xu hướng.
+
+Điểm model và cửa sổ điểm thô giữ nguyên; API bổ sung `pm_declining`, `onset_vote_eligible` và cấu hình bộ lọc. Phiếu cũ vẫn hết hạn theo cửa sổ 3/5 hiện có, không bị xóa ngay khi PM giảm. Flame IR vẫn xử lý độc lập. PM giảm không tự tạo trạng thái SAFE; server vẫn dùng điều kiện điểm thấp/IR hiện có để kết thúc trạng thái cảnh báo, chưa có cơ chế chốt cảnh báo đến khi xác nhận thủ công.

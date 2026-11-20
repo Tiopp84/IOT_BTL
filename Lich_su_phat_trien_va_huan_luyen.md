@@ -1,6 +1,8 @@
 # Lịch sử phát triển và huấn luyện mô hình cảnh báo cháy
 
-Lịch sử ban đầu tổng hợp đến 11/11/2026 từ notebook và bundle mô hình. Ngày 20/11/2026, backend chuyển sang clean13 v2 với nhãn khởi phát, loại phần tiếp diễn khỏi dữ liệu học và dùng ngưỡng metadata 0,25. Các chỉ số lịch sử phía dưới thuộc những phiên bản và phép đánh giá được ghi tại từng mục. [Bundle đang chạy](lightgbm_transient_clean_v2_bundle/metadata.json)
+Cập nhật triển khai: server dùng LightGBM_Clean13_Field_v2, giữ 13 đặc trưng động và học thêm 1.811 mẫu âm thực nghiệm. Ngưỡng phân lớp 0,25; chính sách chú ý 0,10 và bỏ phiếu 3/5 giữ nguyên.
+
+Lịch sử ban đầu tổng hợp đến 11/11/2026 từ notebook và bundle mô hình. Ngày 20/11/2026, backend chuyển sang clean13 v2 với nhãn khởi phát, loại phần tiếp diễn khỏi dữ liệu học và dùng ngưỡng metadata 0,25. Các chỉ số lịch sử phía dưới thuộc những phiên bản và phép đánh giá được ghi tại từng mục. [Bundle đang chạy](lightgbm_clean13_field_v2_bundle/metadata.json)
 
 ## Các giai đoạn phát triển
 

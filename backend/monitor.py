@@ -50,6 +50,7 @@ def validate_telemetry(device_id, data):
 @dataclass
 class Device:
     scores: deque
+    eligible_votes: deque = field(default_factory=deque)
     samples: deque = field(default_factory=lambda: deque(maxlen=LAG + 1))
     history: deque = field(default_factory=lambda: deque(maxlen=HISTORY_SIZE))
     events: deque = field(default_factory=lambda: deque(maxlen=30))
@@ -67,6 +68,7 @@ class Device:
     def reset_windows(self):
         self.samples.clear()
         self.scores.clear()
+        self.eligible_votes.clear()
         self.safe_streak = 0
         self.attention_streak = 0
 
@@ -87,6 +89,7 @@ class Monitor:
         self.threshold = policy["T_HIGH"]
         self.window = policy["window_size"]
         self.required_votes = policy["required_votes"]
+        self.pm_trend_gate = policy.get("pm_trend_gate", {"enabled": False, "minimum_drop_ug_m3": 1.0})
         self.devices = {}
         self.connected = False
 
@@ -96,7 +99,7 @@ class Monitor:
         if device is None:
             if len(self.devices) >= MAX_DEVICES:
                 return
-            device = self.devices[device_id] = Device(deque(maxlen=self.window))
+            device = self.devices[device_id] = Device(deque(maxlen=self.window), eligible_votes=deque(maxlen=self.window))
         boot_id, seq, uptime = data["boot_id"], data["seq"], data["uptime_ms"]
         if boot_id in device.retired_boots:
             return
@@ -113,6 +116,8 @@ class Monitor:
             device.buzzer_enabled = data["buzzer_enabled"]
 
         score = features = None
+        pm_declining = False
+        onset_vote_eligible = False
         ir_confirmed = data["ir_active"] and data["ir_active_duration_ms"] >= IR_CONFIRM_MS
         health = "SENSOR_ERROR"
         risk_level = None
@@ -127,9 +132,21 @@ class Monitor:
             if history_ready:
                 score = self.predictor.score(features)
                 device.scores.append(score)
-                device.attention_streak = device.attention_streak + 1 if score >= self.low_threshold else 0
+                drop = self.pm_trend_gate["minimum_drop_ug_m3"]
+                # Both channels must fall over five intervals and their recent
+                # three-sample mean must fall relative to the preceding three.
+                samples = list(device.samples)
+                pm_declining = self.pm_trend_gate["enabled"] and all(
+                    features[f"d_{name}_5"] <= -drop
+                    and sum(row[index] for row in samples[3:]) / 3
+                    <= sum(row[index] for row in samples[:3]) / 3 - drop
+                    for name, index in (("pm1", 2), ("pm25", 3))
+                )
+                onset_vote_eligible = not pm_declining
+                device.eligible_votes.append(score >= self.threshold and onset_vote_eligible)
+                device.attention_streak = device.attention_streak + 1 if score >= self.low_threshold and onset_vote_eligible else 0
                 device.safe_streak = device.safe_streak + 1 if score < self.low_threshold and not data["ir_active"] else 0
-            votes = sum(point >= self.threshold for point in device.scores)
+            votes = sum(device.eligible_votes)
             full_window = len(device.scores) == self.window
             health = "OK" if full_window else "WARMUP"
             if full_window and votes >= self.required_votes:
@@ -146,6 +163,8 @@ class Monitor:
                 reason = f"Đang xác nhận mức chú ý ({device.attention_streak}/{ATTENTION_SAMPLES} mẫu)"
             elif not history_ready:
                 reason = f"Đang tích lũy lịch sử cảm biến ({len(device.samples)}/{LAG + 1} mẫu)"
+            elif pm_declining:
+                reason = "PM đang giảm: chặn phiếu khởi phát mới, tiếp tục theo dõi"
             else:
                 reason = "Đang tích lũy điểm khởi phát" if not full_window else "Đang theo dõi khởi phát"
 
@@ -159,6 +178,7 @@ class Monitor:
             health=health, risk_level=risk_level, reason=reason,
             measured_risk_level=measured_risk_level, measured_reason=measured_reason,
             votes=votes, vote_samples=len(device.scores), buzzer_enabled=device.buzzer_enabled,
+            pm_declining=pm_declining, onset_vote_eligible=onset_vote_eligible,
         )
         device.boot_id, device.seq, device.uptime_ms = boot_id, seq, uptime
         device.last_seen = now
@@ -175,7 +195,7 @@ class Monitor:
             if not self.connected or now - device.last_seen >= TIMEOUT_SECONDS:
                 current.update(
                     health="OFFLINE", p_fire=None, votes=0, vote_samples=0,
-                    features=None, score_window=[],
+                    features=None, score_window=[], onset_vote_eligible=False, pm_declining=False,
                     measured_risk_level=None,
                     risk_level=None,
                     reason="Chưa nhận được dữ liệu mới" if self.connected else "Mất kết nối MQTT",
@@ -186,4 +206,4 @@ class Monitor:
         return dict(model=self.predictor.info, mqtt_connected=self.connected, threshold=self.threshold, window=self.window,
                     required_votes=self.required_votes, feature_names=self.predictor.features,
                     low_threshold=self.low_threshold, attention_samples=ATTENTION_SAMPLES,
-                    ir_confirm_ms=IR_CONFIRM_MS, devices=devices)
+                    ir_confirm_ms=IR_CONFIRM_MS, pm_trend_gate=self.pm_trend_gate, devices=devices)

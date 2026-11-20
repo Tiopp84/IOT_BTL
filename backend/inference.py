@@ -32,9 +32,9 @@ def extract_features(samples):
 class Predictor:
     def __init__(self):
         backend = Path(__file__).resolve().parent
-        bundle = backend.parent / "lightgbm_transient_clean_v2_bundle"
+        bundle = backend.parent / "lightgbm_clean13_field_v2_bundle"
         metadata = json.loads((bundle / "metadata.json").read_text())
-        model_path = bundle / "lightgbm_transient_v2.joblib"
+        model_path = bundle / "lightgbm_clean13_field_v2.joblib"
         self.model = joblib.load(model_path)
         self.features = metadata["features"]
         expected = extract_features([(0, 0, 0, 0)])
@@ -62,6 +62,15 @@ class Predictor:
             or not 1 <= votes <= window
         ):
             raise ValueError("Invalid server decision policy")
+        gate = policy.get("pm_trend_gate", {})
+        drop = gate.get("minimum_drop_ug_m3", 1.0)
+        if (
+            type(gate.get("enabled", False)) is not bool
+            or type(drop) not in (int, float)
+            or not isfinite(drop)
+            or drop <= 0
+        ):
+            raise ValueError("Invalid PM trend policy")
         self.policy = {**policy, "T_HIGH": threshold}
         self.info = {
             "name": metadata["model_name"],

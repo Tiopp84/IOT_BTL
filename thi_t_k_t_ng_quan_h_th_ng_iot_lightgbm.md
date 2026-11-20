@@ -1,6 +1,6 @@
 # Thiết kế suy luận LightGBM với 13 đặc trưng động
 
-Cập nhật ngày 20/11/2026. Backend nạp `lightgbm_transient_clean_v2_bundle/lightgbm_transient_v2.joblib` khi khởi động. Tên cột, thứ tự đầu vào và ngưỡng phân lớp lấy từ metadata cùng thư mục. Luật bỏ phiếu và ngưỡng chú ý nằm trong `backend/decision_policy.json`. Cấu hình dùng bốn số đo môi trường từ payload ESP32. [Metadata](lightgbm_transient_clean_v2_bundle/metadata.json) · [Mã suy luận](backend/inference.py)
+Cập nhật ngày 20/11/2026. Backend nạp `lightgbm_clean13_field_v2_bundle/lightgbm_clean13_field_v2.joblib` khi khởi động. Tên cột, thứ tự đầu vào và ngưỡng phân lớp lấy từ metadata cùng thư mục. Luật bỏ phiếu và ngưỡng chú ý nằm trong `backend/decision_policy.json`. Cấu hình dùng bốn số đo môi trường từ payload ESP32. [Metadata](lightgbm_clean13_field_v2_bundle/metadata.json) · [Mã suy luận](backend/inference.py)
 
 ## Tạo đặc trưng trực tuyến
 
@@ -46,8 +46,8 @@ Tầng luật sử dụng điểm, số phiếu và cờ Flame IR để tạo `r
 
 ## Huấn luyện và xuất mô hình
 
-Bundle v2 dùng nhãn khởi phát suy ra từ đường cảm biến. Chỉ nền được chọn và các cửa sổ khởi phát tham gia học, các đoạn tiếp diễn/hồi phục bị loại khỏi loss. Bộ sạch có 14.864 hàng, gồm 832 mẫu dương. Validation giữ các cặp phiên gần trùng trong nhóm A/B/C. [Notebook](train_lightgbm_transient_clean_hybrid_kaggle.ipynb) · [Metadata](lightgbm_transient_clean_v2_bundle/metadata.json)
+Bundle v2 dùng nhãn khởi phát suy ra từ đường cảm biến. Chỉ nền được chọn và các cửa sổ khởi phát tham gia học, các đoạn tiếp diễn/hồi phục bị loại khỏi loss. Phần dữ liệu gốc sạch có 14.864 hàng, gồm 832 mẫu dương; model field_clean13 học thêm 1.811 mẫu âm thực nghiệm. Phiên room_20261112 dùng chọn ngưỡng, room_20261120 dùng đánh giá, khói giấy chưa gán nhãn không tham gia học. Validation giữ các cặp phiên gần trùng trong nhóm A/B/C. [Notebook](train_lightgbm_transient_clean_hybrid_kaggle_v2.ipynb) · [Metadata](lightgbm_clean13_field_v2_bundle/metadata.json)
 
-LightGBM dùng 150 cây, độ sâu tối đa 6, tối đa 31 lá, learning rate 0,05 và random_state=42. Notebook so sánh clean13/clean15 và quét ngưỡng 0,05–0,25. Model xuất là clean13, ngưỡng 0,25. Ngưỡng chú ý 0,10 do người tích hợp chọn cho server. Các chỉ số trong bundle chấm điểm/phân lớp tức thời, hiệu năng luật 3/5 cần đo riêng. [Kết quả bundle](lightgbm_transient_clean_v2_bundle/results.json)
+LightGBM dùng 150 cây, độ sâu tối đa 6, tối đa 31 lá, learning rate 0,05 và random_state=42. Notebook v2 so sánh source_clean13/field_clean13/field_augmented13 và quét ngưỡng 0,05–0,25. Model xuất là clean13, ngưỡng 0,25. Ngưỡng chú ý 0,10 do người tích hợp chọn cho server. Các chỉ số trong bundle chấm điểm/phân lớp tức thời, hiệu năng luật 3/5 cần đo riêng. [Kết quả bundle](lightgbm_clean13_field_v2_bundle/results.json)
 
-Đặt `lightgbm_transient_v2.joblib` và `metadata.json` cùng trong `Src/lightgbm_transient_clean_v2_bundle`, rồi chạy `docker compose up -d --build --wait` từ `Src`. Backend kiểm tra variant clean13, thứ tự cột và lớp dương khi khởi động. [Dockerfile](Dockerfile) · [Kiến trúc và MQTT](Thiet_ke_he_thong_IoT_canh_bao_chay.md)
+Đặt `lightgbm_clean13_field_v2.joblib` và `metadata.json` cùng trong `Src/lightgbm_clean13_field_v2_bundle`, rồi chạy `docker compose up -d --build --wait` từ `Src`. Backend kiểm tra variant clean13, thứ tự cột và lớp dương khi khởi động. [Dockerfile](Dockerfile) · [Kiến trúc và MQTT](Thiet_ke_he_thong_IoT_canh_bao_chay.md)

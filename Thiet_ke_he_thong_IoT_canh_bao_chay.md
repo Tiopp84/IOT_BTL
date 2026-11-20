@@ -49,7 +49,7 @@ Ví dụ bản tin gửi xuống `fire/node01/alert`:
   "risk_level": "FIRE_ALERT",
   "p_fire": 0.82,
   "score_kind": "onset",
-  "model_name": "LightGBM_Transient_Clean_v2",
+  "model_name": "LightGBM_Clean13_Field_v2",
   "threshold": 0.25,
   "window": 5,
   "votes": 3,

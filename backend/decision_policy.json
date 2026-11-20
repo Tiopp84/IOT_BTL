@@ -1,5 +1,9 @@
 {
-  "T_LOW": 0.10,
+  "T_LOW": 0.1,
   "window_size": 5,
-  "required_votes": 3
+  "required_votes": 3,
+  "pm_trend_gate": {
+    "enabled": true,
+    "minimum_drop_ug_m3": 1.0
+  }
 }
